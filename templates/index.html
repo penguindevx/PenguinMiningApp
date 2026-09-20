@@ -559,7 +559,7 @@
 
 <script>
 
-const username = "demo";
+const username = window.Telegram?.WebApp?.initDataUnsafe?.user?.username || ("tg_" + window.Telegram?.WebApp?.initDataUnsafe?.user?.id);
 
 let selectedPackage = null;
 
