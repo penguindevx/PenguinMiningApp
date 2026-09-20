@@ -166,6 +166,59 @@ def notify_admin_new_order(order_id, username, package, txid):
     )
 
 
+
+def notify_admin_new_withdrawal(withdrawal_id, username, amount_penguin, amount_usdt, wallet_address):
+    timestamp = int(time.time())
+
+    approve_token = make_admin_action_token(
+        withdrawal_id,
+        "withdraw_approve",
+        timestamp
+    )
+    reject_token = make_admin_action_token(
+        withdrawal_id,
+        "withdraw_reject",
+        timestamp
+    )
+
+    approve_url = (
+        f"{PUBLIC_APP_URL}/admin/withdraw-action"
+        f"?withdrawal_id={withdrawal_id}"
+        f"&action=approve"
+        f"&ts={timestamp}"
+        f"&token={approve_token}"
+    )
+
+    reject_url = (
+        f"{PUBLIC_APP_URL}/admin/withdraw-action"
+        f"?withdrawal_id={withdrawal_id}"
+        f"&action=reject"
+        f"&ts={timestamp}"
+        f"&token={reject_token}"
+    )
+
+    text = (
+        "🐧 <b>YENİ ÇEKİM TALEBİ</b>\\n\\n"
+        f"👤 Kullanıcı: <b>{username}</b>\\n"
+        f"💰 Miktar: <b>{amount_penguin:,.0f} PENGUIN</b>\\n"
+        f"💵 Değer: <b>{amount_usdt:.2f} USDT</b>\\n"
+        f"👛 Cüzdan: <code>{wallet_address}</code>\\n"
+        f"🆔 Çekim: <b>#{withdrawal_id}</b>"
+    )
+
+    keyboard = {
+        "inline_keyboard": [[
+            {"text": "✅ ONAYLA", "url": approve_url},
+            {"text": "❌ REDDET", "url": reject_url}
+        ]]
+    }
+
+    telegram_send_message(
+        ADMIN_ID,
+        text,
+        keyboard
+    )
+
 def get_request_username():
     tg_user = get_telegram_user()
     if tg_user and tg_user.get("id"):
@@ -703,32 +756,33 @@ def payment_info():
     methods=["POST"]
 )
 def create_order():
-
     data = request.json
 
     username = get_request_username()
     if not username:
-        return jsonify({"success": False, "message": "Telegram kullanıcı doğrulaması gerekli."}), 401
+        return jsonify({
+            "success": False,
+            "message": "Telegram kullanıcı doğrulaması gerekli."
+        }), 401
 
     package_id = data.get("package_id")
-
     txid = data.get("txid", "").strip()
-
     receipt = data.get("receipt", "").strip()
 
     if not package_id:
-
         return jsonify({
             "success": False,
             "message": "Paket seçilmedi."
         }), 400
 
     if not txid:
-
         return jsonify({
             "success": False,
             "message": "TXID gerekli."
         }), 400
+
+    telegram_user = get_telegram_user()
+    telegram_user_id = telegram_user["id"] if telegram_user else None
 
     conn = get_db()
 
@@ -738,43 +792,48 @@ def create_order():
     ).fetchone()
 
     if not package:
-
         conn.close()
-
         return jsonify({
             "success": False,
             "message": "Paket bulunamadı."
         }), 404
 
-    conn.execute("""
+    cursor = conn.execute("""
         INSERT INTO orders
         (
             username,
+            telegram_user_id,
             package_id,
             txid,
             receipt,
             status,
             created_at
         )
-        VALUES (?, ?, ?, ?, 'pending', ?)
+        VALUES (?, ?, ?, ?, ?, 'pending', ?)
     """, (
         username,
+        telegram_user_id,
         package_id,
         txid,
         receipt,
         time.time()
     ))
 
+    order_id = cursor.lastrowid
+
     conn.commit()
     conn.close()
 
+    notify_admin_new_order(
+        order_id,
+        username,
+        package,
+        txid
+    )
+
     return jsonify({
-
         "success": True,
-
-        "message":
-        "Ödeme talebin admin onayına gönderildi."
-
+        "message": "Ödeme talebin admin onayına gönderildi."
     })
 
 
@@ -945,6 +1004,14 @@ def create_withdrawal():
         withdrawal_id = cursor.lastrowid
 
         conn.commit()
+        notify_admin_new_withdrawal(
+            withdrawal_id,
+            username,
+            amount_penguin,
+            amount_usdt,
+            wallet_address
+        )
+
 
         return jsonify({
             "success": True,
@@ -1532,6 +1599,142 @@ def reject_order():
 # TELEGRAM ADMIN ORDER ACTION
 # -------------------------------------------------
 
+
+@app.route("/admin/withdraw-action")
+def admin_withdraw_action():
+    withdrawal_id = request.args.get("withdrawal_id", type=int)
+    action = request.args.get("action", "")
+    timestamp = request.args.get("ts", type=int)
+    token = request.args.get("token", "")
+
+    if not withdrawal_id or action not in ("approve", "reject") or not timestamp or not token:
+        return "Geçersiz çekim işlemi.", 400
+
+    token_action = f"withdraw_{action}"
+
+    if not verify_admin_action_token(
+        withdrawal_id,
+        token_action,
+        timestamp,
+        token
+    ):
+        return "Geçersiz veya süresi dolmuş işlem bağlantısı.", 403
+
+    conn = get_db()
+
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+
+        withdrawal = conn.execute("""
+            SELECT *
+            FROM withdrawals
+            WHERE id = ?
+        """, (withdrawal_id,)).fetchone()
+
+        if not withdrawal:
+            conn.rollback()
+            return "Çekim bulunamadı.", 404
+
+        if withdrawal["status"] != "pending":
+            conn.rollback()
+            return (
+                f"Bu çekim zaten işlendi. "
+                f"Mevcut durum: {withdrawal['status']}"
+            )
+
+        now = time.time()
+
+        if action == "approve":
+            conn.execute("""
+                UPDATE withdrawals
+                SET status = 'approved',
+                    processed_at = ?,
+                    admin_id = ?
+                WHERE id = ?
+                AND status = 'pending'
+            """, (
+                now,
+                ADMIN_ID,
+                withdrawal_id
+            ))
+
+            message = (
+                "🐧 <b>ÇEKİM TALEBİN ONAYLANDI!</b>\n\n"
+                f"💰 Miktar: <b>{withdrawal['amount_penguin']:,.0f} PENGUIN</b>\n"
+                f"💵 Değer: <b>{withdrawal['amount_usdt']:.2f} USDT</b>\n"
+                f"👛 Cüzdan: <code>{withdrawal['wallet_address']}</code>\n"
+                f"🆔 Çekim: <b>#{withdrawal_id}</b>"
+            )
+
+            result_text = "✅ Çekim onaylandı."
+
+        else:
+            conn.execute("""
+                UPDATE users
+                SET balance = balance + ?
+                WHERE username = ?
+            """, (
+                withdrawal["amount_penguin"],
+                withdrawal["username"]
+            ))
+
+            conn.execute("""
+                UPDATE withdrawals
+                SET status = 'rejected',
+                    processed_at = ?,
+                    admin_id = ?
+                WHERE id = ?
+                AND status = 'pending'
+            """, (
+                now,
+                ADMIN_ID,
+                withdrawal_id
+            ))
+
+            message = (
+                "🐧 <b>ÇEKİM TALEBİN REDDEDİLDİ.</b>\n\n"
+                f"💰 Miktar: <b>{withdrawal['amount_penguin']:,.0f} PENGUIN</b>\n"
+                f"💵 Değer: <b>{withdrawal['amount_usdt']:.2f} USDT</b>\n"
+                f"🆔 Çekim: <b>#{withdrawal_id}</b>\n\n"
+                "💰 Çekilen PENGUIN bakiyene iade edildi."
+            )
+
+            result_text = "❌ Çekim reddedildi ve bakiye iade edildi."
+
+        conn.commit()
+
+        user = conn.execute("""
+            SELECT telegram_user_id
+            FROM users
+            WHERE username = ?
+        """, (
+            withdrawal["username"],
+        )).fetchone()
+
+        if user and user["telegram_user_id"]:
+            telegram_send_message(
+                user["telegram_user_id"],
+                message
+            )
+
+        return f"""
+        <html>
+        <body style="font-family:Arial;text-align:center;padding:40px">
+            <h2>{result_text}</h2>
+            <p>Çekim #{withdrawal_id}</p>
+        </body>
+        </html>
+        """
+
+    except Exception as e:
+        conn.rollback()
+        print("❌ Admin withdraw action hatası:", e)
+        return "İşlem sırasında hata oluştu.", 500
+
+    finally:
+        conn.close()
+
+
 @app.route("/admin/order-action")
 def admin_order_action():
     order_id = request.args.get("order_id", type=int)
@@ -1641,54 +1844,5 @@ def admin_order_action():
         "<p>Sipariş durumu reddedildi olarak güncellendi.</p>"
     ), 200
 
-
-# -------------------------------------------------
-# LEADERBOARD
-# -------------------------------------------------
-
-@app.route("/api/leaderboard")
-def leaderboard():
-
-    conn = get_db()
-
-    users = conn.execute("""
-        SELECT username, balance, vip_name
-        FROM users
-        ORDER BY balance DESC
-        LIMIT 10
-    """).fetchall()
-
-    conn.close()
-
-    return jsonify([
-
-        {
-            "username": u["username"],
-            "balance": u["balance"],
-            "vip": u["vip_name"]
-        }
-
-        for u in users
-
-    ])
-
-
-# -------------------------------------------------
-# RUN
-# -------------------------------------------------
-
-init_db()
 if __name__ == "__main__":
-
-    init_db()
-
-    print("🐧 Penguin Mining App çalışıyor...")
-    print("🗄️ Database hazır")
-    print("💎 VIP sistemi hazır")
-    print("💳 BNB ödeme sistemi hazır")
-
-    app.run(
-        host="0.0.0.0",
-        port=5000,
-        debug=True
-    )
+    app.run(host="0.0.0.0", port=5000, debug=False)

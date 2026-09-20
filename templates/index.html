@@ -176,14 +176,6 @@
         .back {
             margin-bottom: 10px;
         }
-
-        .leader {
-            display: flex;
-            justify-content: space-between;
-            padding: 12px 0;
-            border-bottom: 1px solid #26334e;
-        }
-
         .vip-badge {
             display: inline-block;
             padding: 4px 8px;
@@ -283,10 +275,18 @@
                 👥 Referans
             </button>
 
-            <button onclick="showLeaderboard()">
-                🏆 Liderlik
-            </button>
+        </div>
 
+        <div class="language-selector">
+            <select id="languageSelect" onchange="setLanguage(this.value)">
+                <option value="en">🇬🇧 English</option>
+                <option value="tr">🇹🇷 Türkçe</option>
+                <option value="ru">🇷🇺 Русский</option>
+                <option value="de">🇩🇪 Deutsch</option>
+                <option value="zh">🇨🇳 中文</option>
+                <option value="fr">🇫🇷 Français</option>
+                <option value="es">🇪🇸 Español</option>
+            </select>
         </div>
 
         <div class="message" id="message"></div>
@@ -532,27 +532,6 @@
 
     </div>
 
-
-    <!-- LEADERBOARD -->
-
-    <div id="leaderboardScreen" class="hidden">
-
-        <button class="gray back" onclick="goHome()">
-            ← Geri
-        </button>
-
-        <div class="card">
-
-            <div class="title">
-                🏆 Liderlik
-            </div>
-
-            <div id="leaderboard">
-                Yükleniyor...
-            </div>
-
-        </div>
-
     </div>
 
 </div>
@@ -597,9 +576,6 @@ function hideScreens() {
         .classList.add("hidden");
 
     document.getElementById("referralScreen")
-        .classList.add("hidden");
-
-    document.getElementById("leaderboardScreen")
         .classList.add("hidden");
 }
 
@@ -1322,62 +1298,6 @@ async function showReferral() {
 
 
 // ------------------------------------------------
-// LEADERBOARD
-// ------------------------------------------------
-
-async function showLeaderboard() {
-
-    hideScreens();
-
-    document.getElementById(
-        "leaderboardScreen"
-    ).classList.remove("hidden");
-
-
-    const response =
-        await fetch(
-            "/api/leaderboard"
-        );
-
-    const data =
-        await response.json();
-
-
-    const container =
-        document.getElementById(
-            "leaderboard"
-        );
-
-    container.innerHTML = "";
-
-
-    data.forEach((user, index) => {
-
-        container.innerHTML += `
-
-            <div class="leader">
-
-                <span>
-                    ${index + 1}.
-                    ${user.username}
-                </span>
-
-                <span>
-                    ${Number(user.balance)
-                        .toFixed(6)}
-                    🐧
-                </span>
-
-            </div>
-
-        `;
-
-    });
-
-}
-
-
-// ------------------------------------------------
 // MESSAGE
 // ------------------------------------------------
 
@@ -1401,6 +1321,233 @@ setInterval(
     loadUser,
     2000
 );
+
+</script>
+
+
+<script>
+const LANGUAGES = {
+    tr: "🇹🇷 Türkçe",
+    en: "🇬🇧 English",
+    ru: "🇷🇺 Русский",
+    de: "🇩🇪 Deutsch",
+    zh: "🇨🇳 中文",
+    fr: "🇫🇷 Français",
+    es: "🇪🇸 Español"
+};
+
+const TRANSLATIONS = {
+    tr: {
+        balance: "PENGUIN BAKİYESİ",
+        mining: "⛏️ Mining",
+        mining_off: "🔴 Mining Kapalı",
+        speed: "⚡ Hız:",
+        package: "💎 Paket:",
+        start: "⛏️ Mining Başlat",
+        stop: "🛑 Mining Durdur",
+        vip: "💎 VIP Paketler",
+        profile: "👤 Profil",
+        referral: "👥 Referans",
+        language: "🌐 Dil",
+        back: "← Geri",
+        vip_title: "💎 VIP Mining Paketleri",
+        loading: "Yükleniyor...",
+        payment: "💳 BNB Ödeme",
+        network: "Ağ:",
+        package_back: "← Paketlere Dön",
+        subtitle: "Mine • Upgrade • Earn",
+        copy_address: "📋 BNB Adresini Kopyala",
+        submit_payment: "📤 Ödeme Kanıtını Gönder",
+        vip_history: "📜 VIP Geçmişim",
+        withdraw: "💸 PENGUIN Çek"
+    },
+    en: {
+        balance: "PENGUIN BALANCE",
+        mining: "⛏️ Mining",
+        mining_off: "🔴 Mining Off",
+        speed: "⚡ Speed:",
+        package: "💎 Package:",
+        start: "⛏️ Start Mining",
+        stop: "🛑 Stop Mining",
+        vip: "💎 VIP Packages",
+        profile: "👤 Profile",
+        referral: "👥 Referral",
+        language: "🌐 Language",
+        back: "← Back",
+        vip_title: "💎 VIP Mining Packages",
+        loading: "Loading...",
+        payment: "💳 BNB Payment",
+        network: "Network:",
+        package_back: "← Back to Packages",
+        subtitle: "Mine • Upgrade • Earn",
+        copy_address: "📋 Copy BNB Address",
+        submit_payment: "📤 Send Payment Proof",
+        vip_history: "📜 My VIP History",
+        withdraw: "💸 Withdraw PENGUIN"
+    },
+    ru: {
+        balance: "БАЛАНС PENGUIN",
+        mining: "⛏️ Майнинг",
+        mining_off: "🔴 Майнинг выключен",
+        speed: "⚡ Скорость:",
+        package: "💎 Пакет:",
+        start: "⛏️ Начать майнинг",
+        stop: "🛑 Остановить майнинг",
+        vip: "💎 VIP Пакеты",
+        profile: "👤 Профиль",
+        referral: "👥 Рефералы",
+        language: "🌐 Язык",
+        back: "← Назад",
+        vip_title: "💎 VIP Пакеты майнинга",
+        loading: "Загрузка...",
+        payment: "💳 Оплата BNB",
+        network: "Сеть:",
+        package_back: "← Назад к пакетам",
+        subtitle: "Майни • Улучшай • Зарабатывай",
+        copy_address: "📋 Копировать BNB адрес",
+        submit_payment: "📤 Отправить подтверждение оплаты",
+        vip_history: "📜 История VIP",
+        withdraw: "💸 Вывести PENGUIN"
+    },
+    de: {
+        balance: "PENGUIN GUTHABEN",
+        mining: "⛏️ Mining",
+        mining_off: "🔴 Mining Aus",
+        speed: "⚡ Geschwindigkeit:",
+        package: "💎 Paket:",
+        start: "⛏️ Mining starten",
+        stop: "🛑 Mining stoppen",
+        vip: "💎 VIP Pakete",
+        profile: "👤 Profil",
+        referral: "👥 Empfehlung",
+        language: "🌐 Sprache",
+        back: "← Zurück",
+        vip_title: "💎 VIP Mining-Pakete",
+        loading: "Wird geladen...",
+        payment: "💳 BNB Zahlung",
+        network: "Netzwerk:",
+        package_back: "← Zurück zu Paketen",
+        subtitle: "Mine • Verbessere • Verdiene",
+        copy_address: "📋 BNB-Adresse kopieren",
+        submit_payment: "📤 Zahlungsnachweis senden",
+        vip_history: "📜 Meine VIP-Historie",
+        withdraw: "💸 PENGUIN abheben"
+    },
+    zh: {
+        balance: "PENGUIN 余额",
+        mining: "⛏️ 挖矿",
+        mining_off: "🔴 挖矿关闭",
+        speed: "⚡ 速度:",
+        package: "💎 套餐:",
+        start: "⛏️ 开始挖矿",
+        stop: "🛑 停止挖矿",
+        vip: "💎 VIP 套餐",
+        profile: "👤 个人资料",
+        referral: "👥 邀请",
+        language: "🌐 语言",
+        back: "← 返回",
+        vip_title: "💎 VIP 挖矿套餐",
+        loading: "加载中...",
+        payment: "💳 BNB 支付",
+        network: "网络:",
+        package_back: "← 返回套餐",
+        subtitle: "挖矿 • 升级 • 赚取",
+        copy_address: "📋 复制 BNB 地址",
+        submit_payment: "📤 发送付款凭证",
+        vip_history: "📜 我的 VIP 历史",
+        withdraw: "💸 提现 PENGUIN"
+    },
+    fr: {
+        balance: "SOLDE PENGUIN",
+        mining: "⛏️ Minage",
+        mining_off: "🔴 Minage désactivé",
+        speed: "⚡ Vitesse:",
+        package: "💎 Forfait:",
+        start: "⛏️ Démarrer le minage",
+        stop: "🛑 Arrêter le minage",
+        vip: "💎 Forfaits VIP",
+        profile: "👤 Profil",
+        referral: "👥 Parrainage",
+        language: "🌐 Langue",
+        back: "← Retour",
+        vip_title: "💎 Forfaits de minage VIP",
+        loading: "Chargement...",
+        payment: "💳 Paiement BNB",
+        network: "Réseau:",
+        package_back: "← Retour aux forfaits",
+        subtitle: "Miner • Améliorer • Gagner",
+        copy_address: "📋 Copier l'adresse BNB",
+        submit_payment: "📤 Envoyer la preuve de paiement",
+        vip_history: "📜 Mon historique VIP",
+        withdraw: "💸 Retirer des PENGUIN"
+    },
+    es: {
+        balance: "SALDO PENGUIN",
+        mining: "⛏️ Minería",
+        mining_off: "🔴 Minería apagada",
+        speed: "⚡ Velocidad:",
+        package: "💎 Paquete:",
+        start: "⛏️ Iniciar minería",
+        stop: "🛑 Detener minería",
+        vip: "💎 Paquetes VIP",
+        profile: "👤 Perfil",
+        referral: "👥 Referidos",
+        language: "🌐 Idioma",
+        back: "← Volver",
+        vip_title: "💎 Paquetes de minería VIP",
+        loading: "Cargando...",
+        payment: "💳 Pago BNB",
+        network: "Red:",
+        package_back: "← Volver a paquetes",
+        subtitle: "Minar • Mejorar • Ganar",
+        copy_address: "📋 Copiar dirección BNB",
+        submit_payment: "📤 Enviar comprobante de pago",
+        vip_history: "📜 Mi historial VIP",
+        withdraw: "💸 Retirar PENGUIN"
+    }
+};
+
+let currentLanguage = localStorage.getItem("penguin_language") || "en";
+
+function t(key) {
+    return TRANSLATIONS[currentLanguage]?.[key]
+        || TRANSLATIONS.en[key]
+        || key;
+}
+
+function setLanguage(lang) {
+    if (!TRANSLATIONS[lang]) return;
+
+    currentLanguage = lang;
+    localStorage.setItem("penguin_language", lang);
+
+    applyLanguage();
+}
+
+function applyLanguage() {
+    document.querySelectorAll("[data-i18n]").forEach(el => {
+        const key = el.dataset.i18n;
+        if (TRANSLATIONS[currentLanguage]?.[key]) {
+            el.textContent = t(key);
+        }
+    });
+
+    const buttons = document.querySelectorAll("#homeScreen button");
+
+    buttons.forEach(btn => {
+        if (btn.getAttribute("onclick") === "startMining()")
+            btn.textContent = t("start");
+
+        if (btn.getAttribute("onclick") === "stopMining()")
+            btn.textContent = t("stop");
+    });
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+    const select = document.getElementById("languageSelect");
+    if (select) select.value = currentLanguage;
+    applyLanguage();
+});
 
 </script>
 
