@@ -1032,13 +1032,11 @@ async function showWithdraw() {
 
     document.getElementById("withdrawScreen").classList.remove("hidden");
 
-    const username =
-        localStorage.getItem("username") ||
-        "demo";
+    const withdrawUsername = username;
 
     try {
         const response = await fetch(
-            `/api/user?username=${encodeURIComponent(username)}`
+            `/api/user?username=${encodeURIComponent(withdrawUsername)}`
         );
         const data = await response.json();
 
@@ -1051,7 +1049,7 @@ async function showWithdraw() {
             `${(balance / 15000).toFixed(6)} USDT`;
 
         updateWithdrawUSDT();
-        loadWithdrawHistory(username);
+        loadWithdrawHistory(withdrawUsername);
 
     } catch (error) {
         console.error("Withdraw ekran hatası:", error);
@@ -1070,9 +1068,7 @@ function updateWithdrawUSDT() {
 }
 
 async function submitWithdraw() {
-    const username =
-        localStorage.getItem("username") ||
-        "demo";
+    const withdrawUsername = username;
 
     const amount = Number(
         document.getElementById("withdrawAmount").value || 0

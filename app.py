@@ -5,6 +5,8 @@ import urllib.parse
 import sqlite3
 import time
 import secrets
+import requests
+from pathlib import Path
 
 app = Flask(__name__)
 
@@ -21,7 +23,7 @@ ADMIN_ID = 1028007008
 BNB_ADDRESS = "0x54990f6F781D81Fc36B76144dfF8637c337062de"
 
 # Mining temel hızı
-BASE_MINING_RATE = 0.000001
+BASE_MINING_RATE = 0.00001
 
 
 import os
@@ -37,6 +39,132 @@ def get_telegram_user():
         return None
 
     return user_data
+
+def telegram_send_message(chat_id, text, reply_markup=None):
+    if not BOT_TOKEN or not chat_id:
+        return False
+
+    try:
+        payload = {
+            "chat_id": int(chat_id),
+            "text": text,
+            "parse_mode": "HTML"
+        }
+
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+
+        response = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json=payload,
+            timeout=8
+        )
+
+        return response.ok
+    except Exception as e:
+        print("Telegram mesaj hatası:", e)
+        return False
+
+
+PUBLIC_APP_URL = "https://penguinminingapp.onrender.com"
+
+
+def make_admin_action_token(order_id, action, timestamp):
+    raw = f"{order_id}:{action}:{timestamp}".encode()
+    return hmac.new(
+        BOT_TOKEN.encode(),
+        raw,
+        hashlib.sha256
+    ).hexdigest()
+
+
+def verify_admin_action_token(order_id, action, timestamp, token):
+    try:
+        timestamp = int(timestamp)
+    except (TypeError, ValueError):
+        return False
+
+    if abs(time.time() - timestamp) > 86400:
+        return False
+
+    expected = make_admin_action_token(
+        order_id,
+        action,
+        timestamp
+    )
+
+    return hmac.compare_digest(
+        expected,
+        str(token or "")
+    )
+
+
+def notify_admin_new_order(order_id, username, package, txid):
+    if not BOT_TOKEN:
+        print("BOT_TOKEN bulunamadı; admin bildirimi gönderilemedi.")
+        return
+
+    timestamp = int(time.time())
+
+    approve_token = make_admin_action_token(
+        order_id,
+        "approve",
+        timestamp
+    )
+
+    reject_token = make_admin_action_token(
+        order_id,
+        "reject",
+        timestamp
+    )
+
+    approve_url = (
+        f"{PUBLIC_APP_URL}/admin/order-action"
+        f"?order_id={order_id}"
+        f"&action=approve"
+        f"&ts={timestamp}"
+        f"&token={approve_token}"
+    )
+
+    reject_url = (
+        f"{PUBLIC_APP_URL}/admin/order-action"
+        f"?order_id={order_id}"
+        f"&action=reject"
+        f"&ts={timestamp}"
+        f"&token={reject_token}"
+    )
+
+    text = (
+        "🐧 <b>YENİ VIP SİPARİŞİ</b>\n\n"
+        f"👤 Kullanıcı: <b>{username}</b>\n"
+        f"💎 Paket: <b>{package['name']}</b>\n"
+        f"💰 Fiyat: <b>{package['price_bnb']} BNB</b>\n"
+        f"⚡ Mining: <b>{package['multiplier']}x</b>\n"
+        f"🧾 TXID: <code>{txid}</code>\n"
+        f"🆔 Sipariş: <b>#{order_id}</b>"
+    )
+
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "✅ ONAYLA",
+                    "url": approve_url
+                },
+                {
+                    "text": "❌ REDDET",
+                    "url": reject_url
+                }
+            ]
+        ]
+    }
+
+    telegram_send_message(
+        ADMIN_ID,
+        text,
+        keyboard
+    )
+
 
 def get_request_username():
     tg_user = get_telegram_user()
@@ -1376,6 +1504,120 @@ def reject_order():
         "message": "Sipariş reddedildi."
 
     })
+
+
+# -------------------------------------------------
+# TELEGRAM ADMIN ORDER ACTION
+# -------------------------------------------------
+
+@app.route("/admin/order-action")
+def admin_order_action():
+    order_id = request.args.get("order_id", type=int)
+    action = request.args.get("action", "").strip().lower()
+    timestamp = request.args.get("ts")
+    token = request.args.get("token", "")
+
+    if action not in ("approve", "reject"):
+        return "<h2>Geçersiz işlem.</h2>", 400
+
+    if not order_id or not verify_admin_action_token(
+        order_id,
+        action,
+        timestamp,
+        token
+    ):
+        return "<h2>Geçersiz veya süresi dolmuş bağlantı.</h2>", 403
+
+    conn = get_db()
+
+    order = conn.execute("""
+        SELECT *
+        FROM orders
+        WHERE id = ?
+    """, (order_id,)).fetchone()
+
+    if not order:
+        conn.close()
+        return "<h2>Sipariş bulunamadı.</h2>", 404
+
+    if order["status"] != "pending":
+        status = order["status"]
+        conn.close()
+        return (
+            f"<h2>Bu sipariş zaten işlendi.</h2>"
+            f"<p>Durum: {status}</p>"
+        ), 200
+
+    package = conn.execute("""
+        SELECT *
+        FROM vip_packages
+        WHERE id = ?
+    """, (order["package_id"],)).fetchone()
+
+    if action == "approve":
+        conn.execute("""
+            UPDATE users
+            SET vip_name = ?,
+                vip_multiplier = ?,
+                mining_rate = ?
+            WHERE username = ?
+        """, (
+            package["name"],
+            package["multiplier"],
+            BASE_MINING_RATE * package["multiplier"],
+            order["username"]
+        ))
+
+        conn.execute("""
+            UPDATE orders
+            SET status = 'approved'
+            WHERE id = ?
+            AND status = 'pending'
+        """, (order_id,))
+
+        conn.commit()
+        conn.close()
+
+        if order["telegram_user_id"]:
+            telegram_send_message(
+                order["telegram_user_id"],
+                (
+                    "🐧 <b>VIP PAKETİN AKTİF EDİLDİ!</b>\n\n"
+                    f"💎 Paket: <b>{package['name']}</b>\n"
+                    f"⚡ Mining: <b>{package['multiplier']}x</b>\n"
+                    f"💰 Ödeme: <b>{package['price_bnb']} BNB</b>"
+                )
+            )
+
+        return (
+            "<h2>✅ Sipariş onaylandı.</h2>"
+            "<p>VIP paket kullanıcı hesabında aktif edildi.</p>"
+        ), 200
+
+    conn.execute("""
+        UPDATE orders
+        SET status = 'rejected'
+        WHERE id = ?
+        AND status = 'pending'
+    """, (order_id,))
+
+    conn.commit()
+    conn.close()
+
+    if order["telegram_user_id"]:
+        telegram_send_message(
+            order["telegram_user_id"],
+            (
+                "🐧 <b>VIP ÖDEME TALEBİN REDDEDİLDİ.</b>\n\n"
+                f"💎 Paket: <b>{package['name']}</b>\n"
+                f"🆔 Sipariş: <b>#{order_id}</b>"
+            )
+        )
+
+    return (
+        "<h2>❌ Sipariş reddedildi.</h2>"
+        "<p>Sipariş durumu reddedildi olarak güncellendi.</p>"
+    ), 200
 
 
 # -------------------------------------------------
