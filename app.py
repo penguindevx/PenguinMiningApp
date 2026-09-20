@@ -324,6 +324,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT,
+            telegram_user_id INTEGER,
             package_id INTEGER,
             txid TEXT,
             receipt TEXT,
@@ -331,6 +332,11 @@ def init_db():
             created_at REAL
         )
     """)
+
+    # ORDERS migration
+    order_columns = [row[1] for row in conn.execute("PRAGMA table_info(orders)").fetchall()]
+    if "telegram_user_id" not in order_columns:
+        conn.execute("ALTER TABLE orders ADD COLUMN telegram_user_id INTEGER")
 
     # Default VIP packages
     packages = [
