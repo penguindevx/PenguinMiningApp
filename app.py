@@ -1,4 +1,7 @@
 from flask import Flask, render_template, jsonify, request, session
+import hashlib
+import hmac
+import urllib.parse
 import sqlite3
 import time
 import secrets
@@ -19,6 +22,52 @@ BNB_ADDRESS = "0x54990f6F781D81Fc36B76144dfF8637c337062de"
 
 # Mining temel hızı
 BASE_MINING_RATE = 0.000001
+
+
+import os
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+
+def validate_telegram_init_data(init_data):
+    if not init_data or not BOT_TOKEN:
+        return None
+
+    try:
+        data = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
+        received_hash = data.pop("hash", None)
+
+        if not received_hash:
+            return None
+
+        data_check_string = "\n".join(
+            f"{key}={data[key]}"
+            for key in sorted(data)
+        )
+
+        secret_key = hmac.new(
+            b"WebAppData",
+            BOT_TOKEN.encode(),
+            hashlib.sha256
+        ).digest()
+
+        calculated_hash = hmac.new(
+            secret_key,
+            data_check_string.encode(),
+            hashlib.sha256
+        ).hexdigest()
+
+        if not hmac.compare_digest(calculated_hash, received_hash):
+            return None
+
+        user_data = data.get("user")
+        if not user_data:
+            return None
+
+        import json
+        return json.loads(user_data)
+
+    except Exception as e:
+        print("Telegram initData doğrulama hatası:", e)
+        return None
 
 
 # -------------------------------------------------
