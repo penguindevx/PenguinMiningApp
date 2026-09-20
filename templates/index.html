@@ -559,7 +559,20 @@
 
 <script>
 
-const username = window.Telegram?.WebApp?.initDataUnsafe?.user?.username || ("tg_" + window.Telegram?.WebApp?.initDataUnsafe?.user?.id);
+const tgWebApp = window.Telegram?.WebApp;
+if (tgWebApp) tgWebApp.ready();
+const tgInitData = tgWebApp?.initData || "";
+const tgUser = tgWebApp?.initDataUnsafe?.user;
+const username = tgUser?.username || (tgUser?.id ? "tg_" + tgUser.id : "");
+
+const originalFetch = window.fetch;
+window.fetch = function(url, options = {}) {
+    options.headers = {
+        ...(options.headers || {}),
+        "X-Telegram-Init-Data": tgInitData
+    };
+    return originalFetch(url, options);
+};
 
 let selectedPackage = null;
 

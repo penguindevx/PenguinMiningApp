@@ -27,6 +27,25 @@ BASE_MINING_RATE = 0.000001
 import os
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
+def get_telegram_user():
+    init_data = request.headers.get("X-Telegram-Init-Data", "").strip()
+    if not init_data:
+        init_data = request.args.get("_tg_init_data", "").strip()
+
+    user_data = validate_telegram_init_data(init_data)
+    if not user_data:
+        return None
+
+    return user_data
+
+def get_request_username():
+    tg_user = get_telegram_user()
+    if tg_user and tg_user.get("id"):
+        return tg_user.get("username") or ("tg_" + str(tg_user["id"]))
+
+    data = request.get_json(silent=True) or {}
+    return str(data.get("username") or request.args.get("username") or "").strip()
+
 def validate_telegram_init_data(init_data):
     if not init_data or not BOT_TOKEN:
         return None
@@ -215,18 +234,25 @@ def create_user(username, telegram_user_id=None):
 
 
 def get_user(username):
+    tg_user = get_telegram_user()
+    telegram_user_id = tg_user.get("id") if tg_user else None
 
-    create_user(username)
+    create_user(username, telegram_user_id)
 
     conn = get_db()
 
-    user = conn.execute(
-        "SELECT * FROM users WHERE username = ?",
-        (username,)
-    ).fetchone()
+    if telegram_user_id:
+        user = conn.execute(
+            "SELECT * FROM users WHERE telegram_user_id = ?",
+            (telegram_user_id,)
+        ).fetchone()
+    else:
+        user = conn.execute(
+            "SELECT * FROM users WHERE username = ?",
+            (username,)
+        ).fetchone()
 
     conn.close()
-
     return user
 
 
@@ -349,11 +375,9 @@ def get_telegram_referral(telegram_user_id):
 @app.route("/api/user")
 def api_user():
 
-    username = request.args.get(
-        "username",
-        "demo"
-    )
-
+    username = get_request_username()
+    if not username:
+        return jsonify({"success": False, "message": "Telegram kullanıcı doğrulaması gerekli."}), 401
     get_user(username)
 
     update_mining(username)
@@ -408,11 +432,9 @@ def api_user():
 )
 def start_mining():
 
-    username = request.json.get(
-        "username",
-        "demo"
-    )
-
+    username = get_request_username()
+    if not username:
+        return jsonify({"success": False, "message": "Telegram kullanıcı doğrulaması gerekli."}), 401
     get_user(username)
 
     update_mining(username)
@@ -448,11 +470,9 @@ def start_mining():
 )
 def stop_mining():
 
-    username = request.json.get(
-        "username",
-        "demo"
-    )
-
+    username = get_request_username()
+    if not username:
+        return jsonify({"success": False, "message": "Telegram kullanıcı doğrulaması gerekli."}), 401
     get_user(username)
 
     update_mining(username)
@@ -536,7 +556,9 @@ def create_order():
 
     data = request.json
 
-    username = data.get("username", "demo")
+    username = get_request_username()
+    if not username:
+        return jsonify({"success": False, "message": "Telegram kullanıcı doğrulaması gerekli."}), 401
 
     package_id = data.get("package_id")
 
@@ -642,9 +664,9 @@ def create_withdrawal():
 
     data = request.get_json(silent=True) or {}
 
-    username = str(
-        data.get("username", "")
-    ).strip()
+    username = get_request_username()
+    if not username:
+        return jsonify({"success": False, "message": "Telegram kullanıcı doğrulaması gerekli."}), 401
 
     wallet_address = str(
         data.get("wallet_address", "")
@@ -813,10 +835,9 @@ def create_withdrawal():
 @app.route("/api/withdrawals")
 def withdrawals():
 
-    username = request.args.get(
-        "username",
-        "demo"
-    ).strip()
+    username = get_request_username()
+    if not username:
+        return jsonify({"success": False, "message": "Telegram kullanıcı doğrulaması gerekli."}), 401
 
     if not username:
         return jsonify([])
@@ -1139,7 +1160,9 @@ def reject_withdrawal():
 
 @app.route("/api/my-orders")
 def my_orders():
-    username = request.args.get("username", "demo").strip()
+    username = get_request_username()
+    if not username:
+        return jsonify({"success": False, "message": "Telegram kullanıcı doğrulaması gerekli."}), 401
 
     if not username:
         return jsonify([])
