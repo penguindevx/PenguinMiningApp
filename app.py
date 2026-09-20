@@ -238,15 +238,21 @@ def init_db():
             username TEXT UNIQUE,
             balance REAL DEFAULT 0,
             mining INTEGER DEFAULT 0,
-            mining_rate REAL DEFAULT 0.000001,
+            mining_rate REAL DEFAULT 0.00001,
             vip_name TEXT DEFAULT 'Free',
             vip_multiplier REAL DEFAULT 1,
             referrals INTEGER DEFAULT 0,
             referral_code TEXT UNIQUE,
             referred_by TEXT,
-            last_update REAL
+            last_update REAL,
+            telegram_user_id INTEGER
         )
     """)
+
+    # USERS migration
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()]
+    if "telegram_user_id" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN telegram_user_id INTEGER")
 
     # VIP PACKAGES
     conn.execute("""
@@ -275,10 +281,14 @@ def init_db():
 
     # Default VIP packages
     packages = [
-        ("Starter Miner", 0.01, 2, 30),
-        ("Pro Miner", 0.03, 5, 30),
-        ("Ultra Miner", 0.07, 10, 30),
-        ("Legend Miner", 0.15, 25, 30)
+        ("Starter Miner", 0.13, 2, 30),
+        ("Pro Miner", 0.25, 5, 30),
+        ("Ultra Miner", 0.50, 10, 30),
+        ("Legend Miner", 1.00, 25, 30),
+        ("Elite Miner", 2.00, 40, 30),
+        ("Master Miner", 4.00, 60, 30),
+        ("Penguin King", 8.00, 100, 30),
+        ("Penguin Emperor", 15.00, 150, 30)
     ]
 
     for package in packages:
@@ -293,6 +303,18 @@ def init_db():
 
         except sqlite3.IntegrityError:
             pass
+
+    # Ensure existing Free users use the current base mining rate
+    conn.execute("UPDATE users SET mining_rate = ? WHERE vip_name = 'Free'", (BASE_MINING_RATE,))
+
+    # Replace old default VIP packages with the current 0.13-15 BNB set
+    conn.execute("DELETE FROM vip_packages")
+    for package in packages:
+        conn.execute("""
+            INSERT OR IGNORE INTO vip_packages
+            (name, price_bnb, multiplier, duration_days)
+            VALUES (?, ?, ?, ?)
+        """, package)
 
     conn.commit()
     conn.close()
