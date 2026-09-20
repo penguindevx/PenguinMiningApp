@@ -155,14 +155,23 @@ def init_db():
 # USER
 # -------------------------------------------------
 
-def create_user(username):
+def create_user(username, telegram_user_id=None):
 
     conn = get_db()
 
-    user = conn.execute(
-        "SELECT * FROM users WHERE username = ?",
-        (username,)
-    ).fetchone()
+    user = None
+
+    if telegram_user_id:
+        user = conn.execute(
+            "SELECT * FROM users WHERE telegram_user_id = ?",
+            (telegram_user_id,)
+        ).fetchone()
+
+    if not user:
+        user = conn.execute(
+            "SELECT * FROM users WHERE username = ?",
+            (username,)
+        ).fetchone()
 
     if not user:
 
@@ -181,16 +190,25 @@ def create_user(username):
                 vip_multiplier,
                 referrals,
                 referral_code,
-                last_update
+                last_update,
+                telegram_user_id
             )
-            VALUES (?, 0, 0, ?, 'Free', 1, 0, ?, ?)
+            VALUES (?, 0, 0, ?, 'Free', 1, 0, ?, ?, ?)
         """, (
             username,
             BASE_MINING_RATE,
             referral_code,
-            now
+            now,
+            telegram_user_id
         ))
 
+        conn.commit()
+
+    elif telegram_user_id and not user["telegram_user_id"]:
+        conn.execute(
+            "UPDATE users SET telegram_user_id = ? WHERE id = ?",
+            (telegram_user_id, user["id"])
+        )
         conn.commit()
 
     conn.close()
