@@ -1,0 +1,5 @@
+.app_referral_api_key
+penguin.db
+*.db
+__pycache__/
+*.pyc
