@@ -218,6 +218,15 @@
             <div class="balance" id="balance">
                 0.00000000 🐧
             </div>
+            <div style="margin-top:10px;font-size:14px;">
+                Biriken: <span id="pendingMining">0.00000000 🐧</span>
+            </div>
+            <button id="claimButton"
+                    onclick="claimMining()"
+                    style="margin-top:10px;width:100%;"
+                    disabled>
+                CLAIM
+            </button>
 
         </div>
 
@@ -614,6 +623,17 @@ async function loadUser() {
                 .toFixed(8)
             + " 🐧";
 
+        const pending = Number(data.pending_mining || 0);
+
+        document.getElementById("pendingMining")
+            .innerText =
+            pending.toFixed(8) + " 🐧";
+
+        const claimButton =
+            document.getElementById("claimButton");
+
+        claimButton.disabled = pending <= 0;
+
 
         document.getElementById("rate")
             .innerText =
@@ -721,6 +741,46 @@ async function stopMining() {
 // VIP
 // ------------------------------------------------
 
+async function claimMining() {
+
+    const button = document.getElementById("claimButton");
+    button.disabled = true;
+
+    try {
+        const response = await fetch(
+            "/api/mining/claim",
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    username: username
+                })
+            }
+        );
+
+        const data = await response.json();
+
+        showMessage(data.message);
+
+        if (data.success) {
+            document.getElementById("balance").innerText =
+                Number(data.balance).toFixed(8) + " 🐧";
+
+            document.getElementById("pendingMining").innerText =
+                Number(data.pending_mining || 0).toFixed(8) + " 🐧";
+        }
+
+        loadUser();
+
+    } catch (error) {
+        console.log(error);
+        showMessage("Claim sırasında bir hata oluştu.");
+        loadUser();
+    }
+}
+
 async function showVIP() {
 
     hideScreens();
@@ -761,7 +821,7 @@ async function showVIP() {
                 </div>
 
                 <div class="info">
-                    ⏱️ ${p.duration_days} gün
+                    ♾️ Sınırsız
                 </div>
 
                 <button

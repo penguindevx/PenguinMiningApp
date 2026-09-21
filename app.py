@@ -298,7 +298,8 @@ def init_db():
             referral_code TEXT UNIQUE,
             referred_by TEXT,
             last_update REAL,
-            telegram_user_id INTEGER
+            telegram_user_id INTEGER,
+            pending_mining REAL DEFAULT 0
         )
     """)
 
@@ -306,6 +307,8 @@ def init_db():
     columns = [row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()]
     if "telegram_user_id" not in columns:
         conn.execute("ALTER TABLE users ADD COLUMN telegram_user_id INTEGER")
+    if "pending_mining" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN pending_mining REAL DEFAULT 0")
 
     # VIP PACKAGES
     conn.execute("""
@@ -367,7 +370,7 @@ def init_db():
     conn.execute("UPDATE users SET mining_rate = ? WHERE vip_name = 'Free'", (BASE_MINING_RATE,))
 
     # Replace old default VIP packages with the current 0.13-15 BNB set
-    conn.execute("DELETE FROM vip_packages")
+    # Existing VIP packages are preserved; INSERT OR IGNORE adds only missing packages.
     for package in packages:
         conn.execute("""
             INSERT OR IGNORE INTO vip_packages
@@ -479,7 +482,6 @@ def update_mining(username):
     ).fetchone()
 
     if not user:
-
         conn.close()
         return
 
@@ -487,7 +489,7 @@ def update_mining(username):
 
     if user["mining"] == 1:
 
-        elapsed = now - user["last_update"]
+        elapsed = max(0, now - (user["last_update"] or now))
 
         earned = (
             elapsed
@@ -495,16 +497,16 @@ def update_mining(username):
             * user["vip_multiplier"]
         )
 
-        new_balance = user["balance"] + earned
+        pending = (user["pending_mining"] or 0) + earned
 
         conn.execute("""
             UPDATE users
-            SET balance = ?,
+            SET pending_mining = ?,
                 last_update = ?,
                 mining_rate = ?
             WHERE username = ?
         """, (
-            new_balance,
+            pending,
             now,
             BASE_MINING_RATE * user["vip_multiplier"],
             username
@@ -607,6 +609,7 @@ def api_user():
         "username": user["username"],
 
         "balance": user["balance"],
+        "pending_mining": user["pending_mining"],
 
         "mining": bool(user["mining"]),
 
@@ -704,6 +707,77 @@ def stop_mining():
     return jsonify({
         "success": True,
         "message": "Mining durduruldu"
+    })
+
+
+# -------------------------------------------------
+# CLAIM MINING
+# -------------------------------------------------
+
+@app.route("/api/mining/claim", methods=["POST"])
+def claim_mining():
+
+    username = get_request_username()
+
+    if not username:
+        return jsonify({
+            "success": False,
+            "message": "Telegram kullanıcı doğrulaması gerekli."
+        }), 401
+
+    update_mining(username)
+
+    conn = get_db()
+
+    user = conn.execute("""
+        SELECT balance, pending_mining, mining
+        FROM users
+        WHERE username = ?
+    """, (username,)).fetchone()
+
+    if not user:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "message": "Kullanıcı bulunamadı."
+        }), 404
+
+    pending = float(user["pending_mining"] or 0)
+    balance = float(user["balance"] or 0)
+
+    if pending <= 0:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "message": "Claim edilecek birikmiş Penguin yok.",
+            "balance": balance,
+            "pending_mining": 0
+        })
+
+    new_balance = balance + pending
+
+    conn.execute("""
+        UPDATE users
+        SET balance = ?,
+            pending_mining = 0,
+            last_update = ?
+        WHERE username = ?
+    """, (
+        new_balance,
+        time.time(),
+        username
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "message": "Penguin başarıyla claim edildi.",
+        "claimed": pending,
+        "balance": new_balance,
+        "pending_mining": 0,
+        "mining": user["mining"]
     })
 
 
@@ -1522,6 +1596,24 @@ def approve_order():
         (order["package_id"],)
     ).fetchone()
 
+    # Mevcut mining kazancını önce eski multiplier ile kaydet
+    update_mining(order["username"])
+
+    current_user = conn.execute("""
+        SELECT vip_name, vip_multiplier
+        FROM users
+        WHERE username = ?
+    """, (order["username"],)).fetchone()
+
+    current_multiplier = float(current_user["vip_multiplier"] or 1)
+
+    # İlk VIP satın alımında Free 1x üzerine ekleme yapma.
+    # Sonraki tüm VIP satın alımlarında multiplier toplanır.
+    if current_user["vip_name"] == "Free":
+        new_multiplier = float(package["multiplier"])
+    else:
+        new_multiplier = current_multiplier + float(package["multiplier"])
+
     conn.execute("""
         UPDATE users
         SET vip_name = ?,
@@ -1530,8 +1622,8 @@ def approve_order():
         WHERE username = ?
     """, (
         package["name"],
-        package["multiplier"],
-        BASE_MINING_RATE * package["multiplier"],
+        new_multiplier,
+        BASE_MINING_RATE * new_multiplier,
         order["username"]
     ))
 
@@ -1786,6 +1878,24 @@ def admin_order_action():
     """, (order["package_id"],)).fetchone()
 
     if action == "approve":
+        # Mevcut mining kazancını önce eski multiplier ile kaydet
+        update_mining(order["username"])
+
+        current_user = conn.execute("""
+            SELECT vip_name, vip_multiplier
+            FROM users
+            WHERE username = ?
+        """, (order["username"],)).fetchone()
+
+        current_multiplier = float(current_user["vip_multiplier"] or 1)
+
+        # İlk VIP satın alımında Free 1x üzerine ekleme yapma.
+        # Sonraki tüm VIP satın alımlarında multiplier toplanır.
+        if current_user["vip_name"] == "Free":
+            new_multiplier = float(package["multiplier"])
+        else:
+            new_multiplier = current_multiplier + float(package["multiplier"])
+
         conn.execute("""
             UPDATE users
             SET vip_name = ?,
@@ -1794,8 +1904,8 @@ def admin_order_action():
             WHERE username = ?
         """, (
             package["name"],
-            package["multiplier"],
-            BASE_MINING_RATE * package["multiplier"],
+            new_multiplier,
+            BASE_MINING_RATE * new_multiplier,
             order["username"]
         ))
 
