@@ -284,10 +284,6 @@
                 👥 Referans
             </button>
 
-            <button onclick="showTasks()" data-i18n="tasks">
-                🎯 Görevler
-            </button>
-
         </div>
 
         <div class="language-selector">
@@ -515,61 +511,6 @@
     </div>
 
 
-    <!-- TASKS -->
-
-    <div id="tasksScreen" class="hidden">
-
-        <button class="gray back" onclick="goHome()">
-            <span data-i18n="back">← Geri</span>
-        </button>
-
-        <div class="card">
-
-            <div class="title">
-                <span data-i18n="tasks_title">🎯 Görevler</span>
-            </div>
-
-            <div class="info">
-                🐧 <strong data-i18n="telegram_task_title">
-                    Telegram Grubuna Katıl
-                </strong>
-            </div>
-
-            <p class="info" data-i18n="telegram_task_description">
-                Telegram grubumuza katıl ve 1.000 PENGUIN kazan.
-            </p>
-
-            <div class="address">
-                🎁 <strong>1.000 PENGUIN</strong>
-            </div>
-
-            <button onclick="openTelegramTask()">
-                📲 <span data-i18n="join_telegram">
-                    Telegram Grubuna Katıl
-                </span>
-            </button>
-
-            <button
-                id="taskClaimButton"
-                class="green"
-                onclick="claimTelegramTask()"
-            >
-                🎁 <span data-i18n="claim_task">
-                    1.000 PENGUIN Claim Et
-                </span>
-            </button>
-
-            <div
-                class="message"
-                id="taskMessage"
-                style="margin-top: 12px;"
-            ></div>
-
-        </div>
-
-    </div>
-
-
     <!-- REFERRAL -->
 
     <div id="referralScreen" class="hidden">
@@ -644,9 +585,6 @@ function hideScreens() {
         .classList.add("hidden");
 
     document.getElementById("referralScreen")
-        .classList.add("hidden");
-
-    document.getElementById("tasksScreen")
         .classList.add("hidden");
 }
 
@@ -1415,145 +1353,6 @@ async function showReferral() {
 
 
 // ------------------------------------------------
-// TASKS
-// ------------------------------------------------
-
-async function showTasks() {
-
-    hideScreens();
-
-    document.getElementById("tasksScreen")
-        .classList.remove("hidden");
-
-    await loadTasks();
-}
-
-
-function openTelegramTask() {
-
-    const url = "https://t.me/penguinmining";
-
-    if (tgWebApp && tgWebApp.openTelegramLink) {
-        tgWebApp.openTelegramLink(url);
-    } else {
-        window.open(url, "_blank");
-    }
-}
-
-
-async function loadTasks() {
-
-    const button =
-        document.getElementById("taskClaimButton");
-
-    const message =
-        document.getElementById("taskMessage");
-
-    try {
-
-        const response =
-            await fetch("/api/tasks");
-
-        const data =
-            await response.json();
-
-        if (!data.success) {
-            button.disabled = true;
-            message.innerText =
-                data.message || t("task_load_error");
-            return;
-        }
-
-        if (data.task.claimed) {
-
-            button.disabled = true;
-
-            message.innerText =
-                t("task_already_claimed");
-
-        } else {
-
-            button.disabled = false;
-
-            message.innerText =
-                t("task_not_joined");
-        }
-
-    } catch (error) {
-
-        console.error("Tasks hatası:", error);
-
-        button.disabled = true;
-
-        message.innerText =
-            t("task_load_error");
-    }
-}
-
-
-async function claimTelegramTask() {
-
-    const button =
-        document.getElementById("taskClaimButton");
-
-    const message =
-        document.getElementById("taskMessage");
-
-    button.disabled = true;
-    message.innerText =
-        t("task_checking");
-
-    try {
-
-        const response =
-            await fetch(
-                "/api/tasks/telegram-group/claim",
-                {
-                    method: "POST"
-                }
-            );
-
-        const data =
-            await response.json();
-
-        if (data.success) {
-
-            message.innerText =
-                t("task_claim_success");
-
-            button.disabled = true;
-
-            loadUser();
-
-        } else {
-
-            message.innerText =
-                "❌ " + (
-                    data.message ||
-                    t("task_failed")
-                );
-
-            button.disabled =
-                data.already_claimed === true;
-        }
-
-    } catch (error) {
-
-        console.error("Task claim hatası:", error);
-
-        message.innerText =
-            t("task_failed");
-
-        button.disabled = false;
-    }
-}
-
-
-// ------------------------------------------------
-// TASKS SONU
-// ------------------------------------------------
-
-// ------------------------------------------------
 // REFERRAL SONU
 // ------------------------------------------------
 
@@ -1609,18 +1408,6 @@ const TRANSLATIONS = {
         vip: "💎 VIP Paketler",
         profile: "👤 Profil",
         referral: "👥 Referans",
-        tasks: "🎯 Görevler",
-        tasks_title: "🎯 Görevler",
-        telegram_task_title: "Telegram Grubuna Katıl",
-        telegram_task_description: "Telegram grubumuza katıl ve 1.000 PENGUIN kazan.",
-        join_telegram: "Telegram Grubuna Katıl",
-        claim_task: "1.000 PENGUIN Claim Et",
-        task_load_error: "❌ Görev bilgisi alınamadı.",
-        task_already_claimed: "✅ Görev tamamlandı. 1.000 PENGUIN ödülünü zaten aldın.",
-        task_not_joined: "Telegram grubuna katıldıktan sonra claim edebilirsin.",
-        task_checking: "⏳ Telegram üyeliğin kontrol ediliyor...",
-        task_claim_success: "🎉 +1.000 PENGUIN başarıyla claim edildi!",
-        task_failed: "❌ Görev tamamlanamadı.",
         language: "🌐 Dil",
         back: "← Geri",
         vip_title: "💎 VIP Mining Paketleri",
@@ -1645,18 +1432,6 @@ const TRANSLATIONS = {
         vip: "💎 VIP Packages",
         profile: "👤 Profile",
         referral: "👥 Referral",
-        tasks: "🎯 Tasks",
-        tasks_title: "🎯 Tasks",
-        telegram_task_title: "Join Telegram Group",
-        telegram_task_description: "Join our Telegram group and earn 1,000 PENGUIN.",
-        join_telegram: "Join Telegram Group",
-        claim_task: "Claim 1,000 PENGUIN",
-        task_load_error: "❌ Task information could not be loaded.",
-        task_already_claimed: "✅ Task completed. You have already claimed the 1,000 PENGUIN reward.",
-        task_not_joined: "Join the Telegram group first, then claim your reward.",
-        task_checking: "⏳ Checking your Telegram membership...",
-        task_claim_success: "🎉 +1,000 PENGUIN successfully claimed!",
-        task_failed: "❌ Task could not be completed.",
         language: "🌐 Language",
         back: "← Back",
         vip_title: "💎 VIP Mining Packages",
@@ -1681,18 +1456,6 @@ const TRANSLATIONS = {
         vip: "💎 VIP Пакеты",
         profile: "👤 Профиль",
         referral: "👥 Рефералы",
-        tasks: "🎯 Задания",
-        tasks_title: "🎯 Задания",
-        telegram_task_title: "Вступить в Telegram-группу",
-        telegram_task_description: "Вступи в нашу Telegram-группу и получи 1 000 PENGUIN.",
-        join_telegram: "Вступить в Telegram-группу",
-        claim_task: "Получить 1 000 PENGUIN",
-        task_load_error: "❌ Не удалось загрузить информацию о задании.",
-        task_already_claimed: "✅ Задание выполнено. Награда 1 000 PENGUIN уже получена.",
-        task_not_joined: "Сначала вступи в Telegram-группу, затем получи награду.",
-        task_checking: "⏳ Проверяем членство в Telegram...",
-        task_claim_success: "🎉 +1 000 PENGUIN успешно получено!",
-        task_failed: "❌ Не удалось выполнить задание.",
         language: "🌐 Язык",
         back: "← Назад",
         vip_title: "💎 VIP Пакеты майнинга",
@@ -1717,18 +1480,6 @@ const TRANSLATIONS = {
         vip: "💎 VIP Pakete",
         profile: "👤 Profil",
         referral: "👥 Empfehlung",
-        tasks: "🎯 Aufgaben",
-        tasks_title: "🎯 Aufgaben",
-        telegram_task_title: "Telegram-Gruppe beitreten",
-        telegram_task_description: "Tritt unserer Telegram-Gruppe bei und erhalte 1.000 PENGUIN.",
-        join_telegram: "Telegram-Gruppe beitreten",
-        claim_task: "1.000 PENGUIN erhalten",
-        task_load_error: "❌ Aufgabeninformationen konnten nicht geladen werden.",
-        task_already_claimed: "✅ Aufgabe abgeschlossen. Die Belohnung von 1.000 PENGUIN wurde bereits erhalten.",
-        task_not_joined: "Tritt zuerst der Telegram-Gruppe bei und hole danach deine Belohnung ab.",
-        task_checking: "⏳ Telegram-Mitgliedschaft wird überprüft...",
-        task_claim_success: "🎉 +1.000 PENGUIN erfolgreich erhalten!",
-        task_failed: "❌ Aufgabe konnte nicht abgeschlossen werden.",
         language: "🌐 Sprache",
         back: "← Zurück",
         vip_title: "💎 VIP Mining-Pakete",
@@ -1753,18 +1504,6 @@ const TRANSLATIONS = {
         vip: "💎 VIP 套餐",
         profile: "👤 个人资料",
         referral: "👥 邀请",
-        tasks: "🎯 任务",
-        tasks_title: "🎯 任务",
-        telegram_task_title: "加入 Telegram 群组",
-        telegram_task_description: "加入我们的 Telegram 群组，获得 1,000 PENGUIN。",
-        join_telegram: "加入 Telegram 群组",
-        claim_task: "领取 1,000 PENGUIN",
-        task_load_error: "❌ 无法加载任务信息。",
-        task_already_claimed: "✅ 任务已完成。你已经领取过 1,000 PENGUIN 奖励。",
-        task_not_joined: "请先加入 Telegram 群组，然后领取奖励。",
-        task_checking: "⏳ 正在检查你的 Telegram 群组成员身份...",
-        task_claim_success: "🎉 成功领取 +1,000 PENGUIN！",
-        task_failed: "❌ 任务无法完成。",
         language: "🌐 语言",
         back: "← 返回",
         vip_title: "💎 VIP 挖矿套餐",
@@ -1789,18 +1528,6 @@ const TRANSLATIONS = {
         vip: "💎 Forfaits VIP",
         profile: "👤 Profil",
         referral: "👥 Parrainage",
-        tasks: "🎯 Missions",
-        tasks_title: "🎯 Missions",
-        telegram_task_title: "Rejoindre le groupe Telegram",
-        telegram_task_description: "Rejoins notre groupe Telegram et gagne 1 000 PENGUIN.",
-        join_telegram: "Rejoindre le groupe Telegram",
-        claim_task: "Réclamer 1 000 PENGUIN",
-        task_load_error: "❌ Impossible de charger les informations de la mission.",
-        task_already_claimed: "✅ Mission terminée. La récompense de 1 000 PENGUIN a déjà été réclamée.",
-        task_not_joined: "Rejoins d'abord le groupe Telegram, puis réclame ta récompense.",
-        task_checking: "⏳ Vérification de ton adhésion à Telegram...",
-        task_claim_success: "🎉 +1 000 PENGUIN réclamés avec succès !",
-        task_failed: "❌ Impossible de terminer la mission.",
         language: "🌐 Langue",
         back: "← Retour",
         vip_title: "💎 Forfaits de minage VIP",
@@ -1825,18 +1552,6 @@ const TRANSLATIONS = {
         vip: "💎 Paquetes VIP",
         profile: "👤 Perfil",
         referral: "👥 Referidos",
-        tasks: "🎯 Tareas",
-        tasks_title: "🎯 Tareas",
-        telegram_task_title: "Unirse al grupo de Telegram",
-        telegram_task_description: "Únete a nuestro grupo de Telegram y gana 1.000 PENGUIN.",
-        join_telegram: "Unirse al grupo de Telegram",
-        claim_task: "Reclamar 1.000 PENGUIN",
-        task_load_error: "❌ No se pudo cargar la información de la tarea.",
-        task_already_claimed: "✅ Tarea completada. Ya has reclamado la recompensa de 1.000 PENGUIN.",
-        task_not_joined: "Únete primero al grupo de Telegram y luego reclama la recompensa.",
-        task_checking: "⏳ Comprobando tu membresía de Telegram...",
-        task_claim_success: "🎉 ¡+1.000 PENGUIN reclamados correctamente!",
-        task_failed: "❌ No se pudo completar la tarea.",
         language: "🌐 Idioma",
         back: "← Volver",
         vip_title: "💎 Paquetes de minería VIP",
