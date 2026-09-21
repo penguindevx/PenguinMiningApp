@@ -3,6 +3,8 @@ import hashlib
 import hmac
 import urllib.parse
 import sqlite3
+import psycopg
+from psycopg.rows import dict_row
 import time
 import secrets
 import requests
@@ -224,8 +226,10 @@ def get_request_username():
     if tg_user and tg_user.get("id"):
         return tg_user.get("username") or ("tg_" + str(tg_user["id"]))
 
-    data = request.get_json(silent=True) or {}
-    return str(data.get("username") or request.args.get("username") or "").strip()
+    # Telegram Mini App doğrulaması yoksa username fallback kullanma.
+    # Aksi halde yanlış/yeni kullanıcı hesabı oluşup bakiye ve VIP
+    # sıfırlanmış gibi görünebilir.
+    return ""
 
 def validate_telegram_init_data(init_data):
     if not init_data or not BOT_TOKEN:
@@ -274,13 +278,47 @@ def validate_telegram_init_data(init_data):
 # DATABASE
 # -------------------------------------------------
 
+class DBWrapper:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def execute(self, sql, params=None):
+        sql = sql.replace("?", "%s")
+        if params is None:
+            return self.conn.execute(sql)
+        return self.conn.execute(sql, params)
+
+    def commit(self):
+        self.conn.commit()
+
+    def rollback(self):
+        self.conn.rollback()
+
+    def close(self):
+        self.conn.close()
+
+
 def get_db():
+    database_url = os.environ.get("DATABASE_URL")
+
+    if database_url:
+        conn = psycopg.connect(
+            database_url,
+            row_factory=dict_row
+        )
+        return DBWrapper(conn)
+
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def init_db():
+
+    # Supabase PostgreSQL kullanılıyorsa tablolar zaten hazırdır.
+    # Mevcut verileri değiştirmemek için SQLite'a özel başlangıç işlemlerini atla.
+    if os.environ.get("DATABASE_URL"):
+        return
 
     conn = get_db()
 
@@ -473,7 +511,6 @@ def get_user(username):
 # -------------------------------------------------
 
 def update_mining(username):
-
     conn = get_db()
 
     user = conn.execute(
@@ -488,39 +525,38 @@ def update_mining(username):
     now = time.time()
 
     if user["mining"] == 1:
-
-        elapsed = max(0, now - (user["last_update"] or now))
+        last_update = user["last_update"] or now
+        elapsed = max(0, now - last_update)
 
         earned = (
             elapsed
             * BASE_MINING_RATE
-            * user["vip_multiplier"]
+            * float(user["vip_multiplier"] or 1)
         )
 
-        pending = (user["pending_mining"] or 0) + earned
+        pending = float(user["pending_mining"] or 0) + earned
 
         conn.execute("""
             UPDATE users
             SET pending_mining = ?,
                 last_update = ?,
                 mining_rate = ?
-            WHERE username = ?
+            WHERE id = ?
         """, (
             pending,
             now,
-            BASE_MINING_RATE * user["vip_multiplier"],
-            username
+            BASE_MINING_RATE * float(user["vip_multiplier"] or 1),
+            user["id"]
         ))
 
     else:
-
         conn.execute("""
             UPDATE users
             SET last_update = ?
-            WHERE username = ?
+            WHERE id = ?
         """, (
             now,
-            username
+            user["id"]
         ))
 
     conn.commit()
@@ -781,6 +817,216 @@ def claim_mining():
     })
 
 
+
+# -------------------------------------------------
+# TASKS
+# -------------------------------------------------
+
+TASK_TELEGRAM_GROUP = "@penguinmining"
+TASK_TELEGRAM_GROUP_KEY = "telegram_group_join"
+TASK_TELEGRAM_GROUP_REWARD = 1000.0
+
+
+def check_telegram_group_membership(telegram_user_id):
+    if not BOT_TOKEN or not telegram_user_id:
+        return False, "Telegram doğrulaması yapılamadı."
+
+    try:
+        response = requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/getChatMember",
+            params={
+                "chat_id": TASK_TELEGRAM_GROUP,
+                "user_id": int(telegram_user_id)
+            },
+            timeout=8
+        )
+
+        data = response.json()
+
+        if not data.get("ok"):
+            print("Telegram üyelik kontrolü:", data.get("description"))
+            return False, "Telegram grup üyeliği kontrol edilemedi."
+
+        status = data.get("result", {}).get("status")
+
+        if status in ("member", "administrator", "creator"):
+            return True, "Üyelik doğrulandı."
+
+        if status == "restricted":
+            if data.get("result", {}).get("is_member"):
+                return True, "Üyelik doğrulandı."
+
+        return False, "Ödülü almak için önce Telegram grubuna katılmalısın."
+
+    except Exception as e:
+        print("Telegram üyelik kontrol hatası:", e)
+        return False, "Telegram üyelik kontrolü sırasında hata oluştu."
+
+
+@app.route("/api/tasks")
+def api_tasks():
+
+    username = get_request_username()
+
+    if not username:
+        return jsonify({
+            "success": False,
+            "message": "Telegram kullanıcı doğrulaması gerekli."
+        }), 401
+
+    tg_user = get_telegram_user()
+
+    if not tg_user or not tg_user.get("id"):
+        return jsonify({
+            "success": False,
+            "message": "Telegram kullanıcı doğrulaması gerekli."
+        }), 401
+
+    telegram_user_id = int(tg_user["id"])
+
+    conn = get_db()
+
+    user = conn.execute("""
+        SELECT id, username, telegram_user_id, balance
+        FROM users
+        WHERE telegram_user_id = ?
+    """, (telegram_user_id,)).fetchone()
+
+    if not user:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "message": "Kullanıcı bulunamadı."
+        }), 404
+
+    task = conn.execute("""
+        SELECT claimed, claimed_at
+        FROM user_tasks
+        WHERE telegram_user_id = ?
+          AND task_key = ?
+    """, (
+        telegram_user_id,
+        TASK_TELEGRAM_GROUP_KEY
+    )).fetchone()
+
+    claimed = bool(task and task["claimed"])
+
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "task": {
+            "key": TASK_TELEGRAM_GROUP_KEY,
+            "title": "Telegram Grubuna Katıl",
+            "group": "https://t.me/penguinmining",
+            "reward": TASK_TELEGRAM_GROUP_REWARD,
+            "claimed": claimed
+        }
+    })
+
+
+@app.route("/api/tasks/telegram-group/claim", methods=["POST"])
+def claim_telegram_group_task():
+
+    username = get_request_username()
+
+    if not username:
+        return jsonify({
+            "success": False,
+            "message": "Telegram kullanıcı doğrulaması gerekli."
+        }), 401
+
+    tg_user = get_telegram_user()
+
+    if not tg_user or not tg_user.get("id"):
+        return jsonify({
+            "success": False,
+            "message": "Telegram kullanıcı doğrulaması gerekli."
+        }), 401
+
+    telegram_user_id = int(tg_user["id"])
+
+    conn = get_db()
+
+    user = conn.execute("""
+        SELECT id, username, telegram_user_id, balance
+        FROM users
+        WHERE telegram_user_id = ?
+    """, (telegram_user_id,)).fetchone()
+
+    if not user:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "message": "Kullanıcı bulunamadı."
+        }), 404
+
+    existing = conn.execute("""
+        SELECT claimed
+        FROM user_tasks
+        WHERE telegram_user_id = ?
+          AND task_key = ?
+    """, (
+        telegram_user_id,
+        TASK_TELEGRAM_GROUP_KEY
+    )).fetchone()
+
+    if existing and existing["claimed"]:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "message": "Bu görevin ödülünü daha önce claim ettin.",
+            "already_claimed": True
+        })
+
+    current_balance = float(user["balance"] or 0)
+    new_balance = current_balance + TASK_TELEGRAM_GROUP_REWARD
+    now = time.time()
+
+    if existing:
+        conn.execute("""
+            UPDATE user_tasks
+            SET claimed = 1,
+                claimed_at = ?
+            WHERE telegram_user_id = ?
+              AND task_key = ?
+        """, (
+            now,
+            telegram_user_id,
+            TASK_TELEGRAM_GROUP_KEY
+        ))
+    else:
+        conn.execute("""
+            INSERT INTO user_tasks
+            (telegram_user_id, task_key, claimed, claimed_at)
+            VALUES (?, ?, 1, ?)
+        """, (
+            telegram_user_id,
+            TASK_TELEGRAM_GROUP_KEY,
+            now
+        ))
+
+    conn.execute("""
+        UPDATE users
+        SET balance = ?
+        WHERE id = ?
+    """, (
+        new_balance,
+        user["id"]
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "message": "🎉 Telegram grup görevi tamamlandı! +1000 PENGUIN",
+        "reward": TASK_TELEGRAM_GROUP_REWARD,
+        "balance": new_balance,
+        "claimed": True
+    })
+
+
 # -------------------------------------------------
 # VIP PACKAGES
 # -------------------------------------------------
@@ -1011,7 +1257,7 @@ def create_withdrawal():
 
         # Aynı anda gelen iki çekim isteğinin
         # aynı bakiyeyi kullanmasını engelle.
-        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("BEGIN")
 
         user = conn.execute("""
             SELECT *
@@ -1252,7 +1498,7 @@ def approve_withdrawal():
 
     try:
 
-        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("BEGIN")
 
         withdrawal = conn.execute("""
             SELECT *
@@ -1358,7 +1604,7 @@ def reject_withdrawal():
 
     try:
 
-        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("BEGIN")
 
         withdrawal = conn.execute("""
             SELECT *
@@ -1721,7 +1967,7 @@ def admin_withdraw_action():
     conn = get_db()
 
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("BEGIN")
 
         withdrawal = conn.execute("""
             SELECT *
