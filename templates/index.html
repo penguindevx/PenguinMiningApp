@@ -550,7 +550,8 @@
 
 const tgWebApp = window.Telegram?.WebApp;
 if (tgWebApp) tgWebApp.ready();
-const tgInitData = tgWebApp?.initData || "";
+function getTelegramInitData() { return window.Telegram?.WebApp?.initData || ""; }
+const tgInitData = getTelegramInitData();
 
 console.log("Telegram WebApp:", !!tgWebApp);
 console.log("Telegram initData mevcut:", !!tgInitData);
@@ -562,7 +563,7 @@ const originalFetch = window.fetch;
 window.fetch = function(url, options = {}) {
     options.headers = {
         ...(options.headers || {}),
-        "X-Telegram-Init-Data": tgInitData
+        "X-Telegram-Init-Data": getTelegramInitData()
     };
     return originalFetch(url, options);
 };
