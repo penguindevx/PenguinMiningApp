@@ -551,6 +551,10 @@
 const tgWebApp = window.Telegram?.WebApp;
 if (tgWebApp) tgWebApp.ready();
 const tgInitData = tgWebApp?.initData || "";
+
+console.log("Telegram WebApp:", !!tgWebApp);
+console.log("Telegram initData mevcut:", !!tgInitData);
+console.log("Telegram user:", tgUser);
 const tgUser = tgWebApp?.initDataUnsafe?.user;
 const username = tgUser?.username || (tgUser?.id ? "tg_" + tgUser.id : "");
 
@@ -605,240 +609,209 @@ function goHome() {
 // ------------------------------------------------
 
 async function loadUser() {
-
     try {
+        const response = await fetch("/api/user");
 
-        const response =
-            await fetch(
-                `/api/user?username=${username}`
-            );
+        const data = await response.json();
 
-        const data =
-            await response.json();
+        if (!response.ok || !data.success) {
+            console.log("User API:", data);
 
+            document.getElementById("balance").innerText = "0.00000000 🐧";
+            document.getElementById("pendingMining").innerText = "0.00000000 🐧";
+            document.getElementById("rate").innerText = "0.00000000 PENGUIN/sn";
+            document.getElementById("vip").innerText = "Free (1x)";
+            document.getElementById("status").innerText = "🔴 Telegram doğrulaması bekleniyor";
 
-        document.getElementById("balance")
-            .innerText =
-            Number(data.balance)
-                .toFixed(8)
-            + " 🐧";
+            const claimButton = document.getElementById("claimButton");
+            if (claimButton) claimButton.disabled = true;
 
-        const pending = Number(data.pending_mining || 0);
-
-        document.getElementById("pendingMining")
-            .innerText =
-            pending.toFixed(8) + " 🐧";
-
-        const claimButton =
-            document.getElementById("claimButton");
-
-        claimButton.disabled = pending <= 0;
-
-
-        document.getElementById("rate")
-            .innerText =
-            Number(data.mining_rate)
-                .toFixed(8)
-            + " PENGUIN/sn";
-
-
-        document.getElementById("vip")
-            .innerText =
-            data.vip_name
-            + " (" +
-            data.vip_multiplier
-            + "x)";
-
-
-        if (data.mining) {
-
-            document.getElementById("status")
-                .innerText =
-                "🟢 Mining Aktif";
-
-        } else {
-
-            document.getElementById("status")
-                .innerText =
-                "🔴 Mining Kapalı";
-
+            return;
         }
 
+        const balance = Number(data.balance || 0);
+        const pending = Number(data.pending_mining || 0);
+        const rate = Number(data.mining_rate || 0);
+        const vipName = data.vip_name || "Free";
+        const vipMultiplier = Number(data.vip_multiplier || 1);
+
+        document.getElementById("balance").innerText =
+            balance.toFixed(8) + " 🐧";
+
+        document.getElementById("pendingMining").innerText =
+            pending.toFixed(8) + " 🐧";
+
+        const claimButton = document.getElementById("claimButton");
+        if (claimButton) {
+            claimButton.disabled = pending <= 0;
+        }
+
+        document.getElementById("rate").innerText =
+            rate.toFixed(8) + " PENGUIN/sn";
+
+        document.getElementById("vip").innerText =
+            vipName + " (" + vipMultiplier + "x)";
+
+        document.getElementById("status").innerText =
+            data.mining ? "🟢 Mining Aktif" : "🔴 Mining Kapalı";
+
     } catch (error) {
+        console.error("loadUser hatası:", error);
 
-        console.log(error);
-
+        document.getElementById("balance").innerText = "0.00000000 🐧";
+        document.getElementById("pendingMining").innerText = "0.00000000 🐧";
+        document.getElementById("rate").innerText = "0.00000000 PENGUIN/sn";
+        document.getElementById("vip").innerText = "Free (1x)";
+        document.getElementById("status").innerText = "🔴 Bağlantı hatası";
     }
-
 }
-
 
 // ------------------------------------------------
 // MINING
 // ------------------------------------------------
 
 async function startMining() {
-
-    const response =
-        await fetch(
-            "/api/mining/start",
-            {
-                method: "POST",
-
-                headers: {
-                    "Content-Type":
-                        "application/json"
-                },
-
-                body: JSON.stringify({
-                    username: username
-                })
+    try {
+        const response = await fetch("/api/mining/start", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
             }
-        );
+        });
 
-    const data =
-        await response.json();
+        const data = await response.json();
 
-    showMessage(
-        data.message
-    );
+        showMessage(data.message || "Mining başlatılamadı.");
 
-    loadUser();
+        if (data.success) {
+            await loadUser();
+        }
+    } catch (error) {
+        console.error("Start Mining hatası:", error);
+        showMessage("Mining başlatılırken bağlantı hatası oluştu.");
+    }
 }
 
 
 async function stopMining() {
-
-    const response =
-        await fetch(
-            "/api/mining/stop",
-            {
-                method: "POST",
-
-                headers: {
-                    "Content-Type":
-                        "application/json"
-                },
-
-                body: JSON.stringify({
-                    username: username
-                })
-            }
-        );
-
-    const data =
-        await response.json();
-
-    showMessage(
-        data.message
-    );
-
-    loadUser();
-}
-
-
-// ------------------------------------------------
-// VIP
-// ------------------------------------------------
-
-async function claimMining() {
-
-    const button = document.getElementById("claimButton");
-    button.disabled = true;
-
     try {
-        const response = await fetch(
-            "/api/mining/claim",
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    username: username
-                })
+        const response = await fetch("/api/mining/stop", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
             }
-        );
+        });
 
         const data = await response.json();
 
-        showMessage(data.message);
+        showMessage(data.message || "Mining durdurulamadı.");
+
+        if (data.success) {
+            await loadUser();
+        }
+    } catch (error) {
+        console.error("Stop Mining hatası:", error);
+        showMessage("Mining durdurulurken bağlantı hatası oluştu.");
+    }
+}
+
+
+async function claimMining() {
+    const button = document.getElementById("claimButton");
+    if (button) button.disabled = true;
+
+    try {
+        const response = await fetch("/api/mining/claim", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            }
+        });
+
+        const data = await response.json();
+
+        showMessage(data.message || "Claim işlemi tamamlanamadı.");
 
         if (data.success) {
             document.getElementById("balance").innerText =
-                Number(data.balance).toFixed(8) + " 🐧";
+                Number(data.balance || 0).toFixed(8) + " 🐧";
 
             document.getElementById("pendingMining").innerText =
                 Number(data.pending_mining || 0).toFixed(8) + " 🐧";
         }
 
-        loadUser();
+        await loadUser();
 
     } catch (error) {
-        console.log(error);
-        showMessage("Claim sırasında bir hata oluştu.");
-        loadUser();
+        console.error("Claim hatası:", error);
+        showMessage("Claim sırasında bağlantı hatası oluştu.");
+        await loadUser();
     }
 }
 
-async function showVIP() {
 
+async function showVIP() {
     hideScreens();
 
     document.getElementById("vipScreen")
         .classList.remove("hidden");
 
+    const container = document.getElementById("packages");
 
-    const response =
-        await fetch("/api/vip");
+    container.innerHTML =
+        '<div class="package">💎 VIP paketleri yükleniyor...</div>';
 
-    const packages =
-        await response.json();
+    try {
+        const response = await fetch("/api/vip");
+        const packages = await response.json();
 
+        if (!response.ok || !Array.isArray(packages)) {
+            throw new Error("VIP API geçersiz cevap verdi");
+        }
 
-    const container =
-        document.getElementById("packages");
+        if (packages.length === 0) {
+            container.innerHTML =
+                '<div class="package">Aktif VIP paketi bulunamadı.</div>';
+            return;
+        }
 
-    container.innerHTML = "";
+        container.innerHTML = "";
 
+        packages.forEach(p => {
+            const price = Number(p.price_bnb || 0);
+            const multiplier = Number(p.multiplier || 1);
+            const duration = Number(p.duration_days || 30);
 
-    packages.forEach(p => {
+            container.innerHTML += `
+                <div class="package">
+                    <h3>💎 ${p.name || "VIP Paket"}</h3>
 
-        container.innerHTML += `
+                    <div class="multiplier">
+                        ⚡ ${multiplier}x Mining
+                    </div>
 
-            <div class="package">
+                    <div class="price">
+                        💰 ${price.toFixed(2)} BNB
+                    </div>
 
-                <h3>
-                    💎 ${p.name}
-                </h3>
+                    <div class="info">
+                        📅 ${duration} Gün
+                    </div>
 
-                <div class="multiplier">
-                    ⚡ ${p.multiplier}x Mining
+                    <button onclick="buyPackage(${Number(p.id)})">
+                        🛒 Satın Al
+                    </button>
                 </div>
+            `;
+        });
 
-                <div class="price">
-                    💰 ${p.price_bnb} BNB
-                </div>
+    } catch (error) {
+        console.error("VIP yükleme hatası:", error);
 
-                <div class="info">
-                    ♾️ Sınırsız
-                </div>
-
-                <button
-                    onclick="buyPackage(${p.id})">
-
-                    🛒 Satın Al
-
-                </button>
-
-            </div>
-
-        `;
-
-    });
-
+        container.innerHTML =
+            '<div class="package">❌ VIP paketleri yüklenemedi. Tekrar deneyin.</div>';
+    }
 }
-
 
 // ------------------------------------------------
 // BUY
