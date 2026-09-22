@@ -1385,12 +1385,30 @@ function showMessage(message) {
 // AUTO UPDATE
 // ------------------------------------------------
 
-loadUser();
+async function initTelegramApp() {
+    const tg = window.Telegram?.WebApp;
 
-setInterval(
-    loadUser,
-    2000
-);
+    if (tg) {
+        tg.ready();
+        tg.expand();
+
+        // Telegram initData'nın hazır olması için kısa bekleme
+        for (let i = 0; i < 20; i++) {
+            if (getTelegramInitData()) break;
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+    }
+
+    await loadUser();
+
+    setInterval(loadUser, 2000);
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initTelegramApp, { once: true });
+} else {
+    initTelegramApp();
+}
 
 </script>
 
