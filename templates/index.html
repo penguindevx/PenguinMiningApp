@@ -554,8 +554,8 @@ const tgInitData = tgWebApp?.initData || "";
 
 console.log("Telegram WebApp:", !!tgWebApp);
 console.log("Telegram initData mevcut:", !!tgInitData);
-console.log("Telegram user:", tgUser);
 const tgUser = tgWebApp?.initDataUnsafe?.user;
+console.log("Telegram user:", tgUser);
 const username = tgUser?.username || (tgUser?.id ? "tg_" + tgUser.id : "");
 
 const originalFetch = window.fetch;
