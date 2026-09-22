@@ -798,7 +798,7 @@ async function showVIP() {
         packages.forEach(p => {
             const price = Number(p.price_bnb || 0);
             const multiplier = Number(p.multiplier || 1);
-            const duration = Number(p.duration_days || 30);
+            const duration = Number(p.duration_days || 0);
 
             container.innerHTML += `
                 <div class="package">
@@ -813,7 +813,7 @@ async function showVIP() {
                     </div>
 
                     <div class="info">
-                        📅 ${duration} Gün
+                        📅 ${duration > 0 ? duration + " Gün" : "♾️ Sınırsız"}
                     </div>
 
                     <button onclick="buyPackage(${Number(p.id)})">

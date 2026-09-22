@@ -25,7 +25,7 @@ ADMIN_ID = 1028007008
 BNB_ADDRESS = "0x54990f6F781D81Fc36B76144dfF8637c337062de"
 
 # Mining temel hızı
-BASE_MINING_RATE = 0.00001
+BASE_MINING_RATE = 0.00000579
 
 
 import os
@@ -381,14 +381,16 @@ def init_db():
 
     # Default VIP packages
     packages = [
-        ("Starter Miner", 0.13, 2, 30),
-        ("Pro Miner", 0.25, 5, 30),
-        ("Ultra Miner", 0.50, 10, 30),
-        ("Legend Miner", 1.00, 25, 30),
-        ("Elite Miner", 2.00, 40, 30),
-        ("Master Miner", 4.00, 60, 30),
-        ("Penguin King", 8.00, 100, 30),
-        ("Penguin Emperor", 15.00, 150, 30)
+        ("Starter Miner", 0.15, 2, 0),
+        ("Pro Miner", 0.30, 5, 0),
+        ("Ultra Miner", 0.60, 10, 0),
+        ("Legend Miner", 1.00, 20, 0),
+        ("Elite Miner", 2.00, 35, 0),
+        ("Master Miner", 4.00, 55, 0),
+        ("Penguin King", 7.00, 80, 0),
+        ("Penguin Emperor", 10.00, 110, 0),
+        ("Penguin Titan", 15.00, 150, 0),
+        ("Penguin Supreme", 20.00, 200, 0)
     ]
 
     for package in packages:
@@ -403,6 +405,14 @@ def init_db():
 
         except sqlite3.IntegrityError:
             pass
+
+    # Update existing VIP packages to the current unlimited configuration.
+    for package in packages:
+        conn.execute("""
+            UPDATE vip_packages
+            SET price_bnb = ?, multiplier = ?, duration_days = ?
+            WHERE name = ?
+        """, (package[1], package[2], package[3], package[0]))
 
     # Ensure existing Free users use the current base mining rate
     conn.execute("UPDATE users SET mining_rate = ? WHERE vip_name = 'Free'", (BASE_MINING_RATE,))
