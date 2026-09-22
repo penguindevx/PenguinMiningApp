@@ -632,7 +632,7 @@ async function loadUser() {
 
         const data = await response.json();
 
-        if (!response.ok || !data.success) {
+        if (!response.ok || data.success === false) {
             console.log("User API:", data);
 
             document.getElementById("balance").innerText = "0.00000000 🐧";
