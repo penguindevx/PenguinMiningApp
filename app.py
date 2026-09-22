@@ -313,11 +313,54 @@ def get_db():
     return conn
 
 
+def migrate_postgres():
+    conn = get_db()
+
+    packages = [
+        ("Starter Miner", 0.15, 2, 0),
+        ("Pro Miner", 0.30, 5, 0),
+        ("Ultra Miner", 0.60, 10, 0),
+        ("Legend Miner", 1.00, 20, 0),
+        ("Elite Miner", 2.00, 35, 0),
+        ("Master Miner", 4.00, 55, 0),
+        ("Penguin King", 7.00, 80, 0),
+        ("Penguin Emperor", 10.00, 110, 0),
+        ("Penguin Titan", 15.00, 150, 0),
+        ("Penguin Supreme", 20.00, 200, 0)
+    ]
+
+    for package in packages:
+        conn.execute("""
+            UPDATE vip_packages
+            SET price_bnb = %s,
+                multiplier = %s,
+                duration_days = %s,
+                active = 1
+            WHERE name = %s
+        """, (package[1], package[2], package[3], package[0]))
+
+        conn.execute("""
+            INSERT INTO vip_packages
+            (name, price_bnb, multiplier, duration_days, active)
+            VALUES (%s, %s, %s, %s, 1)
+            ON CONFLICT (name) DO NOTHING
+        """, package)
+
+    conn.execute(
+        "UPDATE users SET mining_rate = %s WHERE vip_name = 'Free'",
+        (BASE_MINING_RATE,)
+    )
+
+    conn.commit()
+    conn.close()
+
+
 def init_db():
 
     # Supabase PostgreSQL kullanılıyorsa tablolar zaten hazırdır.
     # Mevcut verileri değiştirmemek için SQLite'a özel başlangıç işlemlerini atla.
     if os.environ.get("DATABASE_URL"):
+        migrate_postgres()
         return
 
     conn = get_db()
