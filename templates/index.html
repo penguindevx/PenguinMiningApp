@@ -3,19 +3,6 @@
 
 <head>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script>
-const tgWebApp = window.Telegram?.WebApp;
-if (tgWebApp) tgWebApp.ready();
-const tgInitData = tgWebApp?.initData || "";
-const originalFetch = window.fetch;
-window.fetch = function(url, options = {}) {
-    options.headers = {
-        ...(options.headers || {}),
-        "X-Telegram-Init-Data": tgInitData
-    };
-    return originalFetch(url, options);
-};
-</script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
@@ -330,7 +317,9 @@ window.fetch = function(url, options = {}) {
                 💎 VIP Mining Paketleri
             </div>
 
-            <div id="packages"></div>
+            <div id="packages">
+                Yükleniyor...
+            </div>
 
         </div>
 
@@ -557,10 +546,27 @@ window.fetch = function(url, options = {}) {
 </div>
 
 
-    }
-}
+<script>
 
+const tgWebApp = window.Telegram?.WebApp;
+if (tgWebApp) tgWebApp.ready();
+const tgInitData = tgWebApp?.initData || "";
 
+console.log("Telegram WebApp:", !!tgWebApp);
+console.log("Telegram initData mevcut:", !!tgInitData);
+const tgUser = tgWebApp?.initDataUnsafe?.user;
+const username = tgUser?.username || (tgUser?.id ? "tg_" + tgUser.id : "");
+
+const originalFetch = window.fetch;
+window.fetch = function(url, options = {}) {
+    options.headers = {
+        ...(options.headers || {}),
+        "X-Telegram-Init-Data": tgInitData
+    };
+    return originalFetch(url, options);
+};
+
+let selectedPackage = null;
 
 
 // ------------------------------------------------
@@ -607,7 +613,7 @@ async function loadUser() {
 
         const data = await response.json();
 
-        if (!response.ok || data.success === false) {
+        if (!response.ok || !data.success) {
             console.log("User API:", data);
 
             document.getElementById("balance").innerText = "0.00000000 🐧";
@@ -677,7 +683,7 @@ async function startMining() {
         showMessage(data.message || "Mining başlatılamadı.");
 
         if (data.success) {
-            document.getElementById("status").innerText = "🟢 Mining Aktif";
+            await loadUser();
         }
     } catch (error) {
         console.error("Start Mining hatası:", error);
@@ -700,7 +706,7 @@ async function stopMining() {
         showMessage(data.message || "Mining durdurulamadı.");
 
         if (data.success) {
-            document.getElementById("status").innerText = "🔴 Mining Kapalı";
+            await loadUser();
         }
     } catch (error) {
         console.error("Stop Mining hatası:", error);
@@ -733,65 +739,76 @@ async function claimMining() {
                 Number(data.pending_mining || 0).toFixed(8) + " 🐧";
         }
 
+        await loadUser();
+
     } catch (error) {
         console.error("Claim hatası:", error);
         showMessage("Claim sırasında bağlantı hatası oluştu.");
+        await loadUser();
     }
 }
-
 
 
 async function showVIP() {
     hideScreens();
 
-    const screen = document.getElementById("vipScreen");
+    document.getElementById("vipScreen")
+        .classList.remove("hidden");
+
     const container = document.getElementById("packages");
 
-    screen.classList.remove("hidden");
-    container.innerHTML = "";
+    container.innerHTML =
+        '<div class="package">💎 VIP paketleri yükleniyor...</div>';
 
     try {
-        const response = await fetch("/api/vip", {
-            method: "GET",
-            cache: "no-store",
-            headers: {
-                "Accept": "application/json"
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error("VIP API HTTP " + response.status);
-        }
-
+        const response = await fetch("/api/vip");
         const packages = await response.json();
 
-        if (!Array.isArray(packages) || packages.length === 0) {
-            throw new Error("VIP paketleri bulunamadı");
+        if (!response.ok || !Array.isArray(packages)) {
+            throw new Error("VIP API geçersiz cevap verdi");
         }
 
-        container.innerHTML = packages.map(p => {
-            const id = Number(p.id);
-            const price = Number(p.price_bnb);
-            const multiplier = Number(p.multiplier);
-            const duration = Number(p.duration_days || 0);
+        if (packages.length === 0) {
+            container.innerHTML =
+                '<div class="package">Aktif VIP paketi bulunamadı.</div>';
+            return;
+        }
 
-            return `
+        container.innerHTML = "";
+
+        packages.forEach(p => {
+            const price = Number(p.price_bnb || 0);
+            const multiplier = Number(p.multiplier || 1);
+            const duration = Number(p.duration_days || 30);
+
+            container.innerHTML += `
                 <div class="package">
                     <h3>💎 ${p.name || "VIP Paket"}</h3>
-                    <div class="multiplier">⚡ ${multiplier}x Mining</div>
-                    <div class="price">💰 ${price.toFixed(2)} BNB</div>
-                    <div class="info">📅 ${duration > 0 ? duration + " Gün" : "♾️ Sınırsız"}</div>
-                    <button onclick="buyPackage(${id})">
+
+                    <div class="multiplier">
+                        ⚡ ${multiplier}x Mining
+                    </div>
+
+                    <div class="price">
+                        💰 ${price.toFixed(2)} BNB
+                    </div>
+
+                    <div class="info">
+                        📅 ${duration} Gün
+                    </div>
+
+                    <button onclick="buyPackage(${Number(p.id)})">
                         🛒 Satın Al
                     </button>
                 </div>
             `;
-        }).join("");
+        });
 
     } catch (error) {
         console.error("VIP yükleme hatası:", error);
+
         container.innerHTML =
-            '<div class="package">❌ VIP paketleri yüklenemedi.</div>';
+            '<div class="package">❌ VIP paketleri yüklenemedi. Tekrar deneyin.</div>';
     }
 }
 
@@ -1334,7 +1351,7 @@ loadUser();
 
 setInterval(
     loadUser,
-    10000
+    2000
 );
 
 </script>
