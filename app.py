@@ -619,6 +619,18 @@ def get_telegram_referral(telegram_user_id):
 # USER API
 # -------------------------------------------------
 
+@app.route("/api/telegram-debug")
+def telegram_debug():
+    init_data = request.headers.get("X-Telegram-Init-Data", "").strip()
+    user = validate_telegram_init_data(init_data)
+
+    return jsonify({
+        "header_received": bool(init_data),
+        "telegram_valid": bool(user),
+        "has_user": bool(user and user.get("id"))
+    })
+
+
 @app.route("/api/user")
 def api_user():
 
