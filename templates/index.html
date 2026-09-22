@@ -754,20 +754,49 @@ async function claimMining() {
 async function showVIP() {
     hideScreens();
 
-    document.getElementById("vipScreen")
-        .classList.remove("hidden");
-
+    const screen = document.getElementById("vipScreen");
     const container = document.getElementById("packages");
 
+    if (!screen || !container) {
+        console.error("VIP DOM bulunamadı");
+        return;
+    }
+
+    screen.classList.remove("hidden");
     container.innerHTML =
         '<div class="package">💎 VIP paketleri yükleniyor...</div>';
 
     try {
-        const response = await fetch("/api/vip");
-        const packages = await response.json();
+        const response = await window.fetch(
+            window.location.origin + "/api/vip",
+            {
+                method: "GET",
+                cache: "no-store",
+                headers: {
+                    "Accept": "application/json",
+                    "X-Telegram-Init-Data": getTelegramInitData()
+                }
+            }
+        );
 
-        if (!response.ok || !Array.isArray(packages)) {
-            throw new Error("VIP API geçersiz cevap verdi");
+        const raw = await response.text();
+
+        if (!response.ok) {
+            throw new Error(
+                "VIP API HTTP " + response.status + ": " + raw.slice(0, 200)
+            );
+        }
+
+        let packages;
+
+        try {
+            packages = JSON.parse(raw);
+        } catch (e) {
+            throw new Error("VIP API JSON döndürmedi: " + raw.slice(0, 200));
+        }
+
+        if (!Array.isArray(packages)) {
+            throw new Error("VIP API liste döndürmedi");
         }
 
         if (packages.length === 0) {
@@ -776,14 +805,12 @@ async function showVIP() {
             return;
         }
 
-        container.innerHTML = "";
-
-        packages.forEach(p => {
+        container.innerHTML = packages.map(function(p) {
             const price = Number(p.price_bnb || 0);
             const multiplier = Number(p.multiplier || 1);
-            const duration = Number(p.duration_days || 30);
+            const durationDays = Number(p.duration_days || 0);
 
-            container.innerHTML += `
+            return `
                 <div class="package">
                     <h3>💎 ${p.name || "VIP Paket"}</h3>
 
@@ -796,7 +823,9 @@ async function showVIP() {
                     </div>
 
                     <div class="info">
-                        📅 ${duration} Gün
+                        ${durationDays > 0
+                            ? "📅 " + durationDays + " Gün"
+                            : "♾️ Süresiz"}
                     </div>
 
                     <button onclick="buyPackage(${Number(p.id)})">
@@ -804,18 +833,25 @@ async function showVIP() {
                     </button>
                 </div>
             `;
-        });
+        }).join("");
 
     } catch (error) {
         console.error("VIP yükleme hatası:", error);
 
-        container.innerHTML =
-            '<div class="package">❌ VIP paketleri yüklenemedi. Tekrar deneyin.</div>';
+        container.innerHTML = `
+            <div class="package">
+                ❌ VIP paketleri yüklenemedi.
+                <br>
+                <small>${String(error.message || error)}</small>
+            </div>
+        `;
     }
 }
 
 // ------------------------------------------------
 // BUY
+// ------------------------------------------------
+
 // ------------------------------------------------
 
 async function buyPackage(id) {
