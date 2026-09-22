@@ -342,9 +342,19 @@ def migrate_postgres():
         conn.execute("""
             INSERT INTO vip_packages
             (name, price_bnb, multiplier, duration_days, active)
-            VALUES (%s, %s, %s, %s, 1)
-            ON CONFLICT (name) DO NOTHING
-        """, package)
+            SELECT %s, %s, %s, %s, 1
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM vip_packages
+                WHERE name = %s
+            )
+        """, (
+            package[0],
+            package[1],
+            package[2],
+            package[3],
+            package[0]
+        ))
 
     conn.execute(
         "UPDATE users SET mining_rate = %s WHERE vip_name = 'Free'",
