@@ -546,7 +546,7 @@
 </div>
 
 
-<script>
+<div id="telegramDebug" style="font-size:11px;opacity:.7;text-align:center;margin:8px 0;"></div><script>
 
 const tgWebApp = window.Telegram?.WebApp;
 if (tgWebApp) tgWebApp.ready();
@@ -568,6 +568,24 @@ window.fetch = function(url, options = {}) {
 };
 
 let selectedPackage = null;
+
+telegramDebug();
+
+async function telegramDebug() {
+    try {
+        const r = await fetch("/api/telegram-debug");
+        const d = await r.json();
+        const el = document.getElementById("telegramDebug");
+        if (el) {
+            el.innerText = "TG DEBUG: header=" + d.header_received + " valid=" + d.telegram_valid + " user=" + d.has_user;
+        }
+        console.log("TG DEBUG:", d);
+    } catch (e) {
+        console.error("TG DEBUG error:", e);
+    }
+}
+
+
 
 
 // ------------------------------------------------
