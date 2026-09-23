@@ -1031,6 +1031,28 @@ def claim_mining():
 # VIP PACKAGES
 # -------------------------------------------------
 
+@app.route("/api/db-debug")
+def db_debug():
+    import time
+
+    started = time.time()
+    conn = get_db()
+
+    connected = round(time.time() - started, 2)
+
+    query_started = time.time()
+    row = conn.execute("SELECT COUNT(*) AS count FROM vip_packages").fetchone()
+    queried = round(time.time() - query_started, 2)
+
+    conn.close()
+
+    return jsonify({
+        "connected_seconds": connected,
+        "query_seconds": queried,
+        "vip_count": row["count"]
+    })
+
+
 @app.route("/api/vip")
 def vip_packages():
 
