@@ -1392,11 +1392,17 @@ async function initTelegramApp() {
         tg.ready();
         tg.expand();
 
-        // Telegram initData'nın hazır olması için kısa bekleme
-        for (let i = 0; i < 20; i++) {
+        // Telegram initData'nın hazır olması için bekle
+        for (let i = 0; i < 50; i++) {
             if (getTelegramInitData()) break;
             await new Promise(resolve => setTimeout(resolve, 100));
         }
+    }
+
+    if (!getTelegramInitData()) {
+        console.log("Telegram initData henüz hazır değil; kullanıcı yüklenmedi.");
+        document.getElementById("status").innerText = "🟡 Telegram bağlantısı hazırlanıyor...";
+        return;
     }
 
     await loadUser();
