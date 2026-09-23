@@ -101,40 +101,92 @@ def verify_admin_action_token(order_id, action, timestamp, token):
     )
 
 
+def telegram_api(method, payload=None):
+    if not BOT_TOKEN:
+        print("BOT_TOKEN bulunamadı; Telegram API çağrısı yapılamadı.")
+        return None
+
+    try:
+        response = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/{method}",
+            json=payload or {},
+            timeout=8
+        )
+
+        if not response.ok:
+            print(
+                f"Telegram API hatası [{method}]: "
+                f"{response.status_code} {response.text}"
+            )
+            return None
+
+        return response.json()
+
+    except Exception as e:
+        print(f"Telegram API bağlantı hatası [{method}]:", e)
+        return None
+
+
+def telegram_answer_callback(callback_query_id, text="", show_alert=False):
+    return telegram_api(
+        "answerCallbackQuery",
+        {
+            "callback_query_id": callback_query_id,
+            "text": text,
+            "show_alert": show_alert
+        }
+    )
+
+
+def telegram_edit_message(message, text, reply_markup=None):
+    if not message:
+        return None
+
+    chat = message.get("chat") or {}
+    message_id = message.get("message_id")
+
+    if not chat.get("id") or not message_id:
+        return None
+
+    payload = {
+        "chat_id": chat["id"],
+        "message_id": message_id,
+        "text": text,
+        "parse_mode": "HTML"
+    }
+
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
+
+    return telegram_api("editMessageText", payload)
+
+
+def telegram_remove_buttons(message):
+    if not message:
+        return None
+
+    chat = message.get("chat") or {}
+    message_id = message.get("message_id")
+
+    if not chat.get("id") or not message_id:
+        return None
+
+    return telegram_api(
+        "editMessageReplyMarkup",
+        {
+            "chat_id": chat["id"],
+            "message_id": message_id,
+            "reply_markup": {
+                "inline_keyboard": []
+            }
+        }
+    )
+
+
 def notify_admin_new_order(order_id, username, package, txid):
     if not BOT_TOKEN:
         print("BOT_TOKEN bulunamadı; admin bildirimi gönderilemedi.")
         return
-
-    timestamp = int(time.time())
-
-    approve_token = make_admin_action_token(
-        order_id,
-        "approve",
-        timestamp
-    )
-
-    reject_token = make_admin_action_token(
-        order_id,
-        "reject",
-        timestamp
-    )
-
-    approve_url = (
-        f"{PUBLIC_APP_URL}/admin/order-action"
-        f"?order_id={order_id}"
-        f"&action=approve"
-        f"&ts={timestamp}"
-        f"&token={approve_token}"
-    )
-
-    reject_url = (
-        f"{PUBLIC_APP_URL}/admin/order-action"
-        f"?order_id={order_id}"
-        f"&action=reject"
-        f"&ts={timestamp}"
-        f"&token={reject_token}"
-    )
 
     text = (
         "🐧 <b>YENİ VIP SİPARİŞİ</b>\n\n"
@@ -151,11 +203,11 @@ def notify_admin_new_order(order_id, username, package, txid):
             [
                 {
                     "text": "✅ ONAYLA",
-                    "url": approve_url
+                    "callback_data": f"order:approve:{order_id}"
                 },
                 {
                     "text": "❌ REDDET",
-                    "url": reject_url
+                    "callback_data": f"order:reject:{order_id}"
                 }
             ]
         ]
@@ -298,6 +350,18 @@ class DBWrapper:
         self.conn.close()
 
 
+def insert_and_get_id(conn, sql, params=None):
+    """Insert a row and return its generated id on both SQLite and PostgreSQL."""
+    if isinstance(conn, DBWrapper):
+        cur = conn.execute(sql + " RETURNING id", params)
+        row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("Inserted row id alınamadı")
+        return row["id"] if isinstance(row, dict) else row[0]
+    cur = conn.execute(sql, params)
+    return cur.lastrowid
+
+
 def get_db():
     database_url = os.environ.get("DATABASE_URL")
 
@@ -315,6 +379,62 @@ def get_db():
 
 def migrate_postgres():
     conn = get_db()
+
+    # Render/Supabase may start with an empty PostgreSQL database.
+    # Create every table required by the application before seeding VIPs.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id BIGSERIAL PRIMARY KEY,
+            username TEXT UNIQUE,
+            balance DOUBLE PRECISION DEFAULT 0,
+            mining INTEGER DEFAULT 0,
+            mining_rate DOUBLE PRECISION DEFAULT 0.00000579,
+            vip_name TEXT DEFAULT 'Free',
+            vip_multiplier DOUBLE PRECISION DEFAULT 1,
+            referrals INTEGER DEFAULT 0,
+            referral_code TEXT UNIQUE,
+            referred_by TEXT,
+            last_update DOUBLE PRECISION,
+            telegram_user_id BIGINT UNIQUE,
+            pending_mining DOUBLE PRECISION DEFAULT 0
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS vip_packages (
+            id BIGSERIAL PRIMARY KEY,
+            name TEXT UNIQUE,
+            price_bnb DOUBLE PRECISION,
+            multiplier DOUBLE PRECISION,
+            duration_days INTEGER DEFAULT 0,
+            active INTEGER DEFAULT 1
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id BIGSERIAL PRIMARY KEY,
+            username TEXT,
+            telegram_user_id BIGINT,
+            package_id BIGINT,
+            txid TEXT,
+            receipt TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at DOUBLE PRECISION
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS withdrawals (
+            id BIGSERIAL PRIMARY KEY,
+            username TEXT,
+            amount_penguin DOUBLE PRECISION,
+            amount_usdt DOUBLE PRECISION,
+            wallet_address TEXT,
+            network TEXT DEFAULT 'BEP20',
+            status TEXT DEFAULT 'pending',
+            created_at DOUBLE PRECISION,
+            processed_at DOUBLE PRECISION,
+            admin_id BIGINT
+        )
+    """)
 
     packages = [
         ("Starter Miner", 0.15, 2, 0),
@@ -367,8 +487,7 @@ def migrate_postgres():
 
 def init_db():
 
-    # Supabase PostgreSQL kullanılıyorsa tablolar zaten hazırdır.
-    # Mevcut verileri değiştirmemek için SQLite'a özel başlangıç işlemlerini atla.
+    # PostgreSQL/Render: schema + VIP seed is handled by migrate_postgres().
     if os.environ.get("DATABASE_URL"):
         migrate_postgres()
         return
@@ -424,6 +543,22 @@ def init_db():
             receipt TEXT,
             status TEXT DEFAULT 'pending',
             created_at REAL
+        )
+    """)
+
+    # WITHDRAWALS
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS withdrawals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            amount_penguin REAL,
+            amount_usdt REAL,
+            wallet_address TEXT,
+            network TEXT DEFAULT 'BEP20',
+            status TEXT DEFAULT 'pending',
+            created_at REAL,
+            processed_at REAL,
+            admin_id INTEGER
         )
     """)
 
@@ -978,7 +1113,7 @@ def create_order():
     conn = get_db()
 
     package = conn.execute(
-        "SELECT * FROM vip_packages WHERE id = ?",
+        "SELECT * FROM vip_packages WHERE id = ? AND active = 1",
         (package_id,)
     ).fetchone()
 
@@ -989,7 +1124,7 @@ def create_order():
             "message": "Paket bulunamadı."
         }), 404
 
-    cursor = conn.execute("""
+    order_id = insert_and_get_id(conn, """
         INSERT INTO orders
         (
             username,
@@ -1009,8 +1144,6 @@ def create_order():
         receipt,
         time.time()
     ))
-
-    order_id = cursor.lastrowid
 
     conn.commit()
     conn.close()
@@ -1173,7 +1306,7 @@ def create_withdrawal():
 
         created_at = time.time()
 
-        cursor = conn.execute("""
+        withdrawal_id = insert_and_get_id(conn, """
             INSERT INTO withdrawals (
                 username,
                 amount_penguin,
@@ -1191,8 +1324,6 @@ def create_withdrawal():
             wallet_address,
             created_at
         ))
-
-        withdrawal_id = cursor.lastrowid
 
         conn.commit()
         notify_admin_new_withdrawal(
@@ -1939,6 +2070,319 @@ def admin_withdraw_action():
         conn.rollback()
         print("❌ Admin withdraw action hatası:", e)
         return "İşlem sırasında hata oluştu.", 500
+
+    finally:
+        conn.close()
+
+
+@app.route("/telegram/webhook", methods=["POST"])
+def telegram_webhook():
+    webhook_secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
+
+    if webhook_secret:
+        received_secret = request.headers.get(
+            "X-Telegram-Bot-Api-Secret-Token",
+            ""
+        )
+
+        if not hmac.compare_digest(
+            received_secret,
+            webhook_secret
+        ):
+            return jsonify({"ok": False}), 403
+
+    update = request.get_json(silent=True) or {}
+
+    callback = update.get("callback_query")
+
+    # Normal Telegram update'i ise hiçbir işlem yapma.
+    if not callback:
+        return jsonify({"ok": True})
+
+    callback_id = callback.get("id")
+    callback_data = str(callback.get("data") or "").strip()
+    callback_user = callback.get("from") or {}
+
+    # Callback'i sadece gerçek admin hesabı çalıştırabilir.
+    try:
+        callback_user_id = int(callback_user.get("id", 0))
+    except (TypeError, ValueError):
+        callback_user_id = 0
+
+    if callback_user_id != ADMIN_ID:
+        telegram_answer_callback(
+            callback_id,
+            "⛔ Bu işlem için yetkiniz yok.",
+            True
+        )
+        return jsonify({"ok": True})
+
+    parts = callback_data.split(":")
+
+    if len(parts) != 3:
+        telegram_answer_callback(
+            callback_id,
+            "❌ Geçersiz işlem.",
+            True
+        )
+        return jsonify({"ok": True})
+
+    entity, action, id_text = parts
+
+    if entity != "order" or action not in ("approve", "reject"):
+        telegram_answer_callback(
+            callback_id,
+            "❌ Geçersiz işlem.",
+            True
+        )
+        return jsonify({"ok": True})
+
+    try:
+        order_id = int(id_text)
+    except (TypeError, ValueError):
+        telegram_answer_callback(
+            callback_id,
+            "❌ Geçersiz sipariş numarası.",
+            True
+        )
+        return jsonify({"ok": True})
+
+    conn = get_db()
+
+    try:
+        order = conn.execute("""
+            SELECT *
+            FROM orders
+            WHERE id = ?
+        """, (order_id,)).fetchone()
+
+        if not order:
+            telegram_answer_callback(
+                callback_id,
+                "❌ Sipariş bulunamadı.",
+                True
+            )
+            return jsonify({"ok": True})
+
+        # Aynı sipariş ikinci kez işlenmesin.
+        if order["status"] != "pending":
+            telegram_answer_callback(
+                callback_id,
+                f"ℹ️ Sipariş zaten işlendi: {order['status']}",
+                True
+            )
+
+            message = callback.get("message") or {}
+            original_text = message.get("text") or ""
+
+            telegram_edit_message(
+                message,
+                original_text,
+                {"inline_keyboard": []}
+            )
+
+            return jsonify({"ok": True})
+
+        package = conn.execute("""
+            SELECT *
+            FROM vip_packages
+            WHERE id = ?
+        """, (order["package_id"],)).fetchone()
+
+        if not package:
+            telegram_answer_callback(
+                callback_id,
+                "❌ VIP paketi bulunamadı.",
+                True
+            )
+            return jsonify({"ok": True})
+
+        message = callback.get("message") or {}
+        original_text = message.get("text") or ""
+
+        if action == "approve":
+            # Siparişi önce atomik olarak kilitle.
+            # Böylece aynı callback iki kez aynı anda gelse bile
+            # VIP multiplier ikinci kez eklenmez.
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+
+                claimed = conn.execute("""
+                    UPDATE orders
+                    SET status = 'processing'
+                    WHERE id = ?
+                    AND status = 'pending'
+                """, (order_id,))
+
+                if claimed.rowcount != 1:
+                    conn.rollback()
+
+                    telegram_answer_callback(
+                        callback_id,
+                        "ℹ️ Bu sipariş zaten işleniyor veya işlendi.",
+                        True
+                    )
+
+                    telegram_edit_message(
+                        message,
+                        original_text,
+                        {"inline_keyboard": []}
+                    )
+
+                    return jsonify({"ok": True})
+
+                # Kullanıcıyı aynı transaction içinde al.
+                current_user = conn.execute("""
+                    SELECT *
+                    FROM users
+                    WHERE username = ?
+                """, (order["username"],)).fetchone()
+
+                if not current_user:
+                    raise RuntimeError("Kullanıcı bulunamadı.")
+
+                now = time.time()
+
+                # Mevcut mining kazancını eski multiplier ile hesapla.
+                if current_user["mining"] == 1:
+                    last_update = current_user["last_update"] or now
+                    elapsed = max(0, now - last_update)
+
+                    earned = (
+                        elapsed
+                        * BASE_MINING_RATE
+                        * float(current_user["vip_multiplier"] or 1)
+                    )
+
+                    pending_mining = (
+                        float(current_user["pending_mining"] or 0)
+                        + earned
+                    )
+                else:
+                    pending_mining = float(
+                        current_user["pending_mining"] or 0
+                    )
+
+                current_multiplier = float(
+                    current_user["vip_multiplier"] or 1
+                )
+
+                if current_user["vip_name"] == "Free":
+                    new_multiplier = float(package["multiplier"])
+                else:
+                    new_multiplier = (
+                        current_multiplier
+                        + float(package["multiplier"])
+                    )
+
+                conn.execute("""
+                    UPDATE users
+                    SET vip_name = ?,
+                        vip_multiplier = ?,
+                        mining_rate = ?,
+                        pending_mining = ?,
+                        last_update = ?
+                    WHERE username = ?
+                """, (
+                    package["name"],
+                    new_multiplier,
+                    BASE_MINING_RATE * new_multiplier,
+                    pending_mining,
+                    now,
+                    order["username"]
+                ))
+
+                conn.execute("""
+                    UPDATE orders
+                    SET status = 'approved'
+                    WHERE id = ?
+                    AND status = 'processing'
+                """, (order_id,))
+
+                conn.commit()
+
+            except Exception:
+                conn.rollback()
+                raise
+
+            telegram_answer_callback(
+                callback_id,
+                "✅ VIP siparişi onaylandı."
+            )
+
+            status_text = (
+                original_text +
+                "\n\n"
+                "🟢 <b>DURUM: ONAYLANDI</b>"
+            )
+
+            telegram_edit_message(
+                message,
+                status_text,
+                {"inline_keyboard": []}
+            )
+
+            telegram_send_message(
+                order["telegram_user_id"],
+                (
+                    "🐧 <b>VIP AKTİF EDİLDİ!</b>\n\n"
+                    f"💎 Paket: <b>{package['name']}</b>\n"
+                    f"⚡ Mining: <b>{new_multiplier}x</b>\n"
+                    "♾️ Süre: <b>Sınırsız</b>\n\n"
+                    "Madenciliğiniz güncellendi. 🚀"
+                )
+            )
+
+        else:
+            conn.execute("""
+                UPDATE orders
+                SET status = 'rejected'
+                WHERE id = ?
+                AND status = 'pending'
+            """, (order_id,))
+
+            conn.commit()
+
+            telegram_answer_callback(
+                callback_id,
+                "❌ VIP siparişi reddedildi."
+            )
+
+            status_text = (
+                original_text +
+                "\n\n"
+                "🔴 <b>DURUM: REDDEDİLDİ</b>"
+            )
+
+            telegram_edit_message(
+                message,
+                status_text,
+                {"inline_keyboard": []}
+            )
+
+            telegram_send_message(
+                order["telegram_user_id"],
+                (
+                    "🐧 <b>VIP SİPARİŞİ REDDEDİLDİ</b>\n\n"
+                    f"💎 Paket: <b>{package['name']}</b>\n"
+                    f"🧾 Sipariş: <b>#{order_id}</b>\n\n"
+                    "Lütfen ödeme ve TXID bilgilerinizi kontrol edin."
+                )
+            )
+
+        return jsonify({"ok": True})
+
+    except Exception as e:
+        conn.rollback()
+        print("Telegram webhook callback hatası:", e)
+
+        telegram_answer_callback(
+            callback_id,
+            "❌ İşlem sırasında hata oluştu.",
+            True
+        )
+
+        return jsonify({"ok": True})
 
     finally:
         conn.close()
