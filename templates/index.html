@@ -1395,14 +1395,14 @@ async function initTelegramApp() {
         }
     }
 
-    while (!getTelegramInitData()) {
-        console.log("Telegram initData bekleniyor...");
-        const status = document.getElementById("status");
-        if (status) {
-            status.innerText = "🟡 Telegram bağlantısı hazırlanıyor...";
-        }
-        await new Promise(resolve => setTimeout(resolve, 500));
+    if (!getTelegramInitData()) {
+    console.warn("Telegram initData alınamadı.");
+    const status = document.getElementById("status");
+    if (status) {
+        status.innerText = "🟡 Telegram bağlantısı doğrulanamadı";
     }
+    return;
+}
 
     console.log("Telegram initData hazır.");
     await loadUser();
