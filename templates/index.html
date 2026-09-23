@@ -1399,12 +1399,16 @@ async function initTelegramApp() {
         }
     }
 
-    if (!getTelegramInitData()) {
-        console.log("Telegram initData henüz hazır değil; kullanıcı yüklenmedi.");
-        document.getElementById("status").innerText = "🟡 Telegram bağlantısı hazırlanıyor...";
-        return;
+    while (!getTelegramInitData()) {
+        console.log("Telegram initData bekleniyor...");
+        const status = document.getElementById("status");
+        if (status) {
+            status.innerText = "🟡 Telegram bağlantısı hazırlanıyor...";
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
     }
 
+    console.log("Telegram initData hazır.");
     await loadUser();
 
     setInterval(loadUser, 2000);
