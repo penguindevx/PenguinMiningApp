@@ -762,37 +762,21 @@ async function showVIP() {
     }
 
     screen.classList.remove("hidden");
+
     container.innerHTML =
         '<div class="package">💎 VIP paketleri yükleniyor...</div>';
 
     try {
-        const response = await window.fetch(
-            window.location.origin + "/api/vip",
-            {
-                method: "GET",
-                cache: "no-store",
-                headers: {
-                    "Accept": "application/json",
-                    "X-Telegram-Init-Data": getTelegramInitData()
-                }
-            }
-        );
-
-        const raw = await response.text();
+        const response = await fetch("/api/vip", {
+            method: "GET",
+            cache: "no-store"
+        });
 
         if (!response.ok) {
-            throw new Error(
-                "VIP API HTTP " + response.status + ": " + raw.slice(0, 200)
-            );
+            throw new Error("VIP API HTTP " + response.status);
         }
 
-        let packages;
-
-        try {
-            packages = JSON.parse(raw);
-        } catch (e) {
-            throw new Error("VIP API JSON döndürmedi: " + raw.slice(0, 200));
-        }
+        const packages = await response.json();
 
         if (!Array.isArray(packages)) {
             throw new Error("VIP API liste döndürmedi");
