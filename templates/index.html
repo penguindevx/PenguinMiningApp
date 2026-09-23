@@ -553,6 +553,17 @@ if (tgWebApp) tgWebApp.ready();
 function getTelegramInitData() { return window.Telegram?.WebApp?.initData || ""; }
 const tgInitData = getTelegramInitData();
 
+document.addEventListener("DOMContentLoaded", () => {
+    const debug = document.createElement("div");
+    debug.id = "tg-debug";
+    debug.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;background:#000;color:#fff;padding:8px;font-size:12px;";
+    debug.textContent =
+        "TG WebApp: " + (!!window.Telegram?.WebApp) +
+        " | initData: " + (!!getTelegramInitData()) +
+        " | user: " + (!!window.Telegram?.WebApp?.initDataUnsafe?.user);
+    document.body.prepend(debug);
+});
+
 console.log("Telegram WebApp:", !!tgWebApp);
 console.log("Telegram initData mevcut:", !!tgInitData);
 const tgUser = tgWebApp?.initDataUnsafe?.user;
