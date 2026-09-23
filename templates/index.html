@@ -561,6 +561,22 @@ document.addEventListener("DOMContentLoaded", () => {
         "TG WebApp: " + (!!window.Telegram?.WebApp) +
         " | initData: " + (!!getTelegramInitData()) +
         " | user: " + (!!window.Telegram?.WebApp?.initDataUnsafe?.user);
+
+    fetch("/api/telegram-debug", {
+        headers: {
+            "X-Telegram-Init-Data": getTelegramInitData()
+        }
+    })
+    .then(r => r.json())
+    .then(d => {
+        debug.textContent +=
+            " | SERVER header: " + d.header_received +
+            " | valid: " + d.telegram_valid +
+            " | serverUser: " + d.has_user;
+    })
+    .catch(e => {
+        debug.textContent += " | DEBUG ERROR";
+    });
     document.body.prepend(debug);
 });
 
